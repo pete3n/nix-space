@@ -15,6 +15,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -35,7 +36,7 @@ in
 
     systemd = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = pkgs.stdenv.hostPlatform.isLinux;
       description = ''
         Use ghostty's systemd user service on Linux.
 
