@@ -154,6 +154,7 @@ in
     programs.zsh = {
       enable = true;
       enableCompletion = true;
+      inherit (cfg) dotDir;
 
       autosuggestion.enable = cfg.autosuggestion;
       syntaxHighlighting.enable = cfg.syntaxHighlighting;
