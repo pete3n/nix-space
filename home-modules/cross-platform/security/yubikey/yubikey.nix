@@ -263,7 +263,7 @@ in
         pkgs.opensc
       ]
       ++ lib.optional cfg.tools.legacyOtp pkgs.yubikey-personalization
-      ++ lib.optional cfg.tools.oathGui pkgs.yubioath-flutter;
+      ++ lib.optional (cfg.tools.oathGui && cfg.tools.oathGuiPackage != null) cfg.tools.oathGuiPackage;
     })
 
     (lib.mkIf (cfg.enable && cfg.ageSecrets.enable) {
