@@ -228,17 +228,15 @@ in
         ]
         ++ lib.optional isLinux pkgs.ethtool
       )
-      ++ lib.optionals cfg.wireless
-      &&
-        isLinux (
-          with pkgs;
-          [
-            iw
-            wpa_supplicant
-          ]
-        )
-        ++ lib.optional cfg.openvpn.enable openvpnPackage
-        ++ lib.optional cfg.wireguard pkgs.wireguard-tools
-        ++ cfg.extraPackages;
+      ++ lib.optionals (cfg.wireless && isLinux) (
+        with pkgs;
+        [
+          iw
+          wpa_supplicant
+        ]
+      )
+      ++ lib.optional cfg.openvpn.enable openvpnPackage
+      ++ lib.optional cfg.wireguard pkgs.wireguard-tools
+      ++ cfg.extraPackages;
   };
 }
