@@ -18,11 +18,11 @@
   ...
 }:
 let
-  cfg = config.nixSpace.workstationCommon;
+  cfg = config.nixSpace.programs.workstationCommon;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
-  options.nixSpace.workstationCommon = {
+  options.nixSpace.programs.workstationCommon = {
     enable = lib.mkEnableOption "the desktop-agnostic workstation defaults";
   };
 

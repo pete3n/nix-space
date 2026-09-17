@@ -46,28 +46,24 @@ in
 
   config = lib.mkIf cfg.enable {
     nixSpace = {
-      workstationCommon.enable = true;
-
       waybar = {
         enable = lib.mkDefault true;
         hyprlandWorkspaces = true;
 
-				# mpd player requires the mpd service
-				mpdPlayer.enable = lib.mkDefault true;
+        # mpd player requires the mpd service
+        mpdPlayer.enable = lib.mkDefault true;
 
-        # mpdBrowser asserts that rofi is enabled. 
-				# and requires mpdPlayer
+        # mpdBrowser asserts that rofi is enabled.
+        # and requires mpdPlayer
         mpdBrowser.enable = lib.mkDefault true;
 
         # A widget definition alone does not appear on the bar: the feature
         # module defines it, this places it. Placement lists do not merge,
         # so each list here names everything in its position, in order.
-        modulesLeft =
-          lib.optional cfg.snowflake.enable "custom/snowflake"
-          ++ [
-            "hyprland/workspaces"
-            "tray"
-          ];
+        modulesLeft = lib.optional cfg.snowflake.enable "custom/snowflake" ++ [
+          "hyprland/workspaces"
+          "tray"
+        ];
 
         # pomodoro defines the clock widget; calendar attaches its popup to
         # the same key. One placement covers both.
@@ -106,11 +102,13 @@ in
         };
       };
 
-      programs.launchers = {
-        rofi.enable = lib.mkDefault true;
-        primary = lib.mkDefault "rofi";
+      programs = {
+        workstationCommon.enable = true;
+        launchers = {
+          rofi.enable = lib.mkDefault true;
+          primary = lib.mkDefault "rofi";
+        };
       };
-
       services.dunst.enable = lib.mkDefault true;
     };
 

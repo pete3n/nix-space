@@ -63,12 +63,12 @@ in
     ];
 
     nixSpace = {
-			workstationCommon.enable = true;
       theme = {
         qt = lib.mkDefault false;
         gtk = lib.mkDefault false;
       };
 
+      programs.workstationCommon.enable = true;
       security.filevaults.enable = lib.mkIf cfg.applications (lib.mkDefault true);
     };
   };
