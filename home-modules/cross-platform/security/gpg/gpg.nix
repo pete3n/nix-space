@@ -50,8 +50,8 @@ in
     pinentry = {
       graphical = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.pinentry-gnome3;
-        defaultText = lib.literalExpression "pkgs.pinentry-gnome3";
+        default = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.pinentry_mac else pkgs.pinentry-gnome3;
+        defaultText = lib.literalExpression "pinentry-gnome3, or pinentry_mac on darwin";
         description = ''
           Pinentry used when a display is present.
 
