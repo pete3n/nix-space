@@ -22,6 +22,22 @@ in
   options.nixSpace.programs.shells.zsh = {
     enable = lib.mkEnableOption "zsh configuration";
 
+    dotDir = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.xdg.configHome}/zsh";
+      defaultText = lib.literalExpression ''"''${config.xdg.configHome}/zsh"'';
+      description = ''
+        Where .zshrc and friends live.
+
+        The XDG location rather than the home directory: home-manager's
+        default is changing to this at stateVersion 26.05, and setting it
+        explicitly means the move happens when you choose rather than when
+        the version bumps.
+
+        Existing ~/.zshrc content is no longer read after this changes.
+      '';
+    };
+
     viMode = lib.mkOption {
       type = lib.types.bool;
       default = true;
