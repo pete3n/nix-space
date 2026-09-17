@@ -21,6 +21,8 @@ let
     enableBashIntegration = shells.bash.enable;
     enableZshIntegration = shells.zsh.enable;
   };
+
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   options.nixSpace.programs.core = {
@@ -242,7 +244,6 @@ in
           rsync
 
           # External media
-          udisks
           # TODO: Script to -> CP USB
           cdrtools
           # TODO: Script to -> ISO -> Record
@@ -263,6 +264,7 @@ in
           # TODO: Offline repo clones for TLDR and Navi
 
         ]
+        ++ lib.optionals isLinux pkgs.udisks
       )
       ++ cfg.extraPackages;
 
