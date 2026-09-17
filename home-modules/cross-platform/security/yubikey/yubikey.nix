@@ -87,7 +87,7 @@ in
 
       oathGui = lib.mkOption {
         type = lib.types.bool;
-        default = true;
+        default = pkgs.stdenv.hostPlatform.isLinux;
         description = ''
           Install yubioath-flutter, a graphical OATH client.
 
