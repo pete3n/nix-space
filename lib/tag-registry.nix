@@ -102,7 +102,6 @@ let
     "yubi-usbip-client"
     "yubi-usbip-server"
     "yubi-ssh-import"
-    "yubi-u2f"
   ]
   ++ hardware;
 
@@ -129,6 +128,7 @@ let
     # software and not that hardware.
     "sdr"
     "virtualisation"
+    "yubi-u2f"
   ];
 
   valid = lib.unique (systemOnly ++ darwinOnly ++ linuxOnly ++ piOnly ++ misc);
