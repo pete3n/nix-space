@@ -87,11 +87,25 @@ in
 
       oathGui = lib.mkOption {
         type = lib.types.bool;
-        default = pkgs.stdenv.hostPlatform.isLinux;
+        default = true;
         description = ''
           Install yubioath-flutter, a graphical OATH client.
 
           `ykman oath accounts code` does the same from a terminal.
+        '';
+      };
+
+      oathGuiPackage = lib.mkOption {
+        type = lib.types.nullOr lib.types.package;
+        default = if pkgs.stdenv.hostPlatform.isLinux then pkgs.yubioath-flutter else null;
+        defaultText = lib.literalExpression "pkgs.yubioath-flutter on Linux, null otherwise";
+        description = ''
+          YubiKey Authenticator GUI.
+
+          yubioath-flutter is Linux-only; macOS uses Yubico's own build, which
+          is not in nixpkgs. A darwin host supplies it through this option —
+          see packages/darwin/yubioath-darwin — or leaves it null and installs
+          the app outside Nix.
         '';
       };
     };
