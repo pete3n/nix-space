@@ -126,11 +126,8 @@ in
         pkgs.yt-dlp
       ]
       ++ lib.optional cfg.metadata pkgs.exiftool
-      ++ lib.optionals cfg.capture [
-        pkgs.wf-recorder
-        pkgs.asciinema
-      ]
-      ++ cfg.extraPackages;
+      ++ lib.optionals cfg.capture
+      && isLinux pkgs.wf-recorder ++ lib.optionals cfg.capture pkgs.asciinema ++ cfg.extraPackages;
 
     # Contributed from here rather than assembled in the xdg module: the
     # module that owns the player owns the association, so the two cannot

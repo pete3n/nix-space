@@ -30,6 +30,8 @@ let
 
   openvpnPackage =
     if cfg.openvpn.pkcs11Support then pkgs.openvpn.override { pkcs11Support = true; } else pkgs.openvpn;
+
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   options.nixSpace.programs.net = {
@@ -197,17 +199,20 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages =
-      (with pkgs; [
-        browsh
-        lynx
-				w3m
-        ddgr 
-        netcat-openbsd
-        socat
-        speedtest-rs
-        sshs
-        whois 
-      ])
+      (
+        with pkgs;
+        [
+          browsh
+          lynx
+          w3m
+          ddgr
+          socat
+          speedtest-rs
+          sshs
+          whois
+        ]
+        ++ lib.optional isLinux pkgs.netcat-openbsd
+      )
       ++ lib.optional cfg.mosh pkgs.mosh
       ++ lib.optional cfg.bandwhich pkgs.bandwhich
       ++ lib.optional cfg.wormhole.enable wormholeWrapped
@@ -216,22 +221,24 @@ in
         with pkgs;
         [
           bind.dnsutils
-					ethtool
           iperf3
           knot-dns # kdig for DNS-over-TLS and DNS-over-HTTPS
           mtr # improved traceroute
           tcpdump
         ]
+        ++ lib.optional isLinux pkgs.ethtool
       )
-      ++ lib.optionals cfg.wireless (
-        with pkgs;
-        [
-          iw
-          wpa_supplicant
-        ]
-      )
-      ++ lib.optional cfg.openvpn.enable openvpnPackage
-      ++ lib.optional cfg.wireguard pkgs.wireguard-tools
-      ++ cfg.extraPackages;
+      ++ lib.optionals cfg.wireless
+      &&
+        isLinux (
+          with pkgs;
+          [
+            iw
+            wpa_supplicant
+          ]
+        )
+        ++ lib.optional cfg.openvpn.enable openvpnPackage
+        ++ lib.optional cfg.wireguard pkgs.wireguard-tools
+        ++ cfg.extraPackages;
   };
 }

@@ -7,6 +7,7 @@
 
 let
   cfg = config.nixSpace.programs.netsec;
+  isLinux = pkgs.stdenv.hostPlatform.isLinux;
 in
 {
   options.nixSpace.programs.netsec = {
@@ -120,11 +121,11 @@ in
           aircrack-ng
           angryoxide
           bettercap
-        	gpsd
-          hcxdumptool
+          gpsd
           hcxtools
-          reaverwps-t6x
         ]
+        ++ lib.optional isLinux pkgs.hcxdumptool
+        ++ lib.optional isLinux pkgs.reaverwps-t6x
       )
       ++ lib.optional cfg.cracking pkgs.hashcat
       ++ lib.optional (cfg.sdr.gnuradio != null) cfg.sdr.gnuradio
