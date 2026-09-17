@@ -1,0 +1,406 @@
+# mpd player for waybar.
+#
+# Split from linux/mpd, which is the daemon and terminal clients. Everything
+# in this module emits waybar JSON or exists to be bound to a widget.
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.nixSpace.waybar.mpdPlayer;
+
+  mpc = "${pkgs.mpc}/bin/mpc";
+  jq = "${pkgs.jq}/bin/jq";
+  playerctl = "${pkgs.playerctl}/bin/playerctl -p mpd";
+
+  # Scrolling now-playing indicator.
+  #
+  # Waybar has no marquee, so the scroll happens here: each invocation
+  # advances a saved offset and emits the next window of text. That makes the
+  # widget's `interval` the scroll RATE — a slower interval scrolls slower, it
+  # does not merely update less often.
+  #
+  # Byte-oriented (wc -c, cut -c), so a multi-byte character in a title can be
+  # split mid-sequence and show a replacement glyph for one tick. Counting
+  # characters portably is not something POSIX tools do, and the artefact
+  # lasts one frame.
+  ticker =
+    pkgs.writeShellScriptBin "mpd-ticker" # sh
+      ''
+        set -u
+
+        MAX_CHARS=${toString cfg.maxLength}
+        GAP="${cfg.ticker.gap}"
+        STEP=${toString cfg.ticker.step}
+
+        STATE_DIR="''${XDG_STATE_HOME:-$HOME/.local/state}"
+        ${pkgs.coreutils}/bin/mkdir -p "$STATE_DIR"
+        STATE_FILE="$STATE_DIR/mpd-ticker.state"
+
+        status_out="$(${mpc} status 2>/dev/null || true)"
+        st_line="$(printf '%s\n' "$status_out" | ${pkgs.gnused}/bin/sed -n '2p' 2>/dev/null || true)"
+
+        case "$st_line" in
+          "[playing]"*) status="playing" ;;
+          "[paused]"*)  status="paused" ;;
+          *)            status="stopped" ;;
+        esac
+
+        artist="$(${mpc} -f '%artist%' current 2>/dev/null || true)"
+        title="$(${mpc} -f '%title%' current 2>/dev/null || true)"
+        file="$(${mpc} -f '%file%' current 2>/dev/null || true)"
+
+        # Filename without directory or extension, for tracks with no tags.
+        base="''${file##*/}"
+        base="''${base%.*}"
+
+        if [ -n "''${artist:-}" ] && [ -n "''${title:-}" ]; then
+          full="$artist ~ $title"
+        elif [ -n "''${title:-}" ]; then
+          full="$title"
+        elif [ -n "''${artist:-}" ]; then
+          full="$artist"
+        elif [ -n "''${base:-}" ]; then
+          full="$base"
+        else
+          full="MPD"
+        fi
+
+        prev_full=""
+        pos=0
+        if [ -r "$STATE_FILE" ]; then
+          pos="$(${pkgs.gnused}/bin/sed -n '1p' "$STATE_FILE" 2>/dev/null || printf 0)"
+          prev_full="$(${pkgs.gnused}/bin/sed -n '2p' "$STATE_FILE" 2>/dev/null || true)"
+        fi
+
+        # Restart the scroll on a track change, so a new title is read from
+        # its start rather than from wherever the last one had reached.
+        [ "$full" != "$prev_full" ] && pos=0
+
+        full_len="$(printf '%s' "$full" | ${pkgs.coreutils}/bin/wc -c | ${pkgs.coreutils}/bin/tr -d ' ')"
+
+        if [ "$full_len" -le "$MAX_CHARS" ]; then
+          text="$full"
+        else
+          scroll="$full$GAP"
+          scroll_len="$(printf '%s' "$scroll" | ${pkgs.coreutils}/bin/wc -c | ${pkgs.coreutils}/bin/tr -d ' ')"
+          pos_mod=$(( pos % scroll_len ))
+
+          # Doubled so a window straddling the end wraps without separate
+          # handling for that case.
+          doubled="$scroll$scroll"
+          text="$(printf '%s' "$doubled" | ${pkgs.coreutils}/bin/cut -c $((pos_mod+1))-$((pos_mod+MAX_CHARS)))"
+
+          pos=$(( pos + STEP ))
+        fi
+
+        {
+          printf '%s\n' "$pos"
+          printf '%s\n' "$full"
+        } > "$STATE_FILE" 2>/dev/null || true
+
+        ${jq} -cn \
+          --arg text "$text" \
+          --arg tooltip "$full" \
+          --arg alt "$status" \
+          --arg class "$status" \
+          '{ text: $text, tooltip: $tooltip, alt: $alt, class: $class }'
+      '';
+
+  # Random state as a CSS class, so the icon is styled rather than swapped —
+  # the glyph is the same either way, only its colour changes.
+  shuffleStatus =
+    pkgs.writeShellScriptBin "mpd-shuffle-status" # sh
+      ''
+        set -eu
+
+        _state="$(${mpc} status 2>/dev/null \
+          | ${pkgs.gnugrep}/bin/grep -Eo 'random: (on|off)' \
+          | ${pkgs.gawk}/bin/awk '{print $2}' || true)"
+
+        # mpc prints no status line at all when stopped with an empty queue,
+        # so an absent value means off rather than unknown.
+        [ -n "''${_state:-}" ] || _state="off"
+
+        ${jq} -cn --arg class "''${_state}" \
+          '{ text: "${cfg.icons.shuffle}", class: $class, tooltip: "Shuffle" }'
+      '';
+
+  # Repeat is TWO mpd flags: `repeat` loops the queue, `single` stops after
+  # one track. The three states a user thinks in are combinations of both.
+  repeatStatus =
+    pkgs.writeShellScriptBin "mpd-repeat-status" # sh
+      ''
+        set -eu
+
+        _status="$(${mpc} status 2>/dev/null || true)"
+
+        _repeat="$(printf '%s\n' "''${_status}" \
+          | ${pkgs.gnugrep}/bin/grep -Eo 'repeat: (on|off)' \
+          | ${pkgs.gawk}/bin/awk '{print $2}' || true)"
+        _single="$(printf '%s\n' "''${_status}" \
+          | ${pkgs.gnugrep}/bin/grep -Eo 'single: (on|off)' \
+          | ${pkgs.gawk}/bin/awk '{print $2}' || true)"
+
+        [ -n "''${_repeat:-}" ] || _repeat="off"
+        [ -n "''${_single:-}" ] || _single="off"
+
+        if [ "''${_repeat}" = "off" ]; then
+          _state="off"; _icon="${cfg.icons.repeatOff}"; _tip="Repeat: off"
+        elif [ "''${_single}" = "on" ]; then
+          _state="track"; _icon="${cfg.icons.repeatTrack}"; _tip="Repeat: track"
+        else
+          _state="playlist"; _icon="${cfg.icons.repeatPlaylist}"; _tip="Repeat: playlist"
+        fi
+
+        ${jq} -cn --arg text "''${_icon}" --arg class "''${_state}" --arg tooltip "''${_tip}" \
+          '{ text: $text, class: $class, tooltip: $tooltip }'
+      '';
+
+  # Cycles off -> playlist -> track -> off, setting BOTH flags each time so
+  # the pair cannot drift into a combination the status script has no name for.
+  repeatCycle =
+    pkgs.writeShellScriptBin "mpd-repeat-cycle" # sh
+      ''
+        set -eu
+
+        _status="$(${mpc} status 2>/dev/null || true)"
+
+        _repeat="$(printf '%s\n' "''${_status}" \
+          | ${pkgs.gnugrep}/bin/grep -Eo 'repeat: (on|off)' \
+          | ${pkgs.gawk}/bin/awk '{print $2}' || true)"
+        _single="$(printf '%s\n' "''${_status}" \
+          | ${pkgs.gnugrep}/bin/grep -Eo 'single: (on|off)' \
+          | ${pkgs.gawk}/bin/awk '{print $2}' || true)"
+
+        [ -n "''${_repeat:-}" ] || _repeat="off"
+        [ -n "''${_single:-}" ] || _single="off"
+
+        if [ "''${_repeat}" = "off" ]; then
+          ${mpc} repeat on >/dev/null 2>&1 || true
+          ${mpc} single off >/dev/null 2>&1 || true
+        elif [ "''${_single}" = "off" ]; then
+          ${mpc} repeat on >/dev/null 2>&1 || true
+          ${mpc} single on >/dev/null 2>&1 || true
+        else
+          ${mpc} repeat off >/dev/null 2>&1 || true
+          ${mpc} single off >/dev/null 2>&1 || true
+        fi
+      '';
+in
+{
+  options.nixSpace.waybar.mpdPlayer = {
+    enable = lib.mkEnableOption "MPD bar widgets" // {
+      default = true;
+      description = "Music player daemon waybar widgets.";
+    };
+
+    maxLength = lib.mkOption {
+      type = lib.types.ints.positive;
+      default = 35;
+      description = ''
+        Characters of now-playing text shown before scrolling starts.
+
+        Also the ticker's window width — a title shorter than this is shown
+        whole and does not scroll at all.
+      '';
+    };
+
+    ticker = {
+      gap = lib.mkOption {
+        type = lib.types.str;
+        default = " • ";
+        description = ''
+          Separator between repeats of the scrolling text.
+
+          Pure spaces make the wrap point invisible, so a looping title reads
+          as one that stutters. A visible separator reads as a loop.
+        '';
+      };
+
+      step = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 5;
+        description = ''
+          Characters advanced per tick.
+
+          With the widget's one-second interval this is the scroll SPEED.
+          Five is brisk; one is smoother but slow through a long title.
+        '';
+      };
+    };
+
+    browserScript = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = null;
+      description = ''
+        Package providing a queue and library browser, bound to right-click.
+
+        Null leaves right-click unbound. The browser is a menu over mpc and
+        needs a dmenu-compatible launcher, which this module does not install.
+      '';
+    };
+
+    icons = {
+      previous = lib.mkOption {
+        type = lib.types.str;
+        default = "⏮";
+        description = "Previous-track glyph.";
+      };
+      next = lib.mkOption {
+        type = lib.types.str;
+        default = "⏭";
+        description = "Next-track glyph.";
+      };
+      shuffle = lib.mkOption {
+        type = lib.types.str;
+        default = "󰒟";
+        description = "Shuffle glyph, styled by CSS class rather than swapped. Needs a Nerd Font.";
+      };
+      repeatOff = lib.mkOption {
+        type = lib.types.str;
+        default = "󰑗";
+        description = "Repeat-off glyph.";
+      };
+      repeatPlaylist = lib.mkOption {
+        type = lib.types.str;
+        default = "󰑖";
+        description = "Repeat-playlist glyph.";
+      };
+      repeatTrack = lib.mkOption {
+        type = lib.types.str;
+        default = "󰑘";
+        description = "Repeat-track glyph.";
+      };
+    };
+  };
+
+  config = lib.mkIf (config.nixSpace.waybar.enable && cfg.enable) {
+    assertions = [
+      {
+        assertion = config.nixSpace.services.mpd.enable;
+        message = ''
+          nixSpace.waybar.mpdPlayer needs nixSpace.services.mpd: the widgets read `mpc
+          status` and drive playerctl, both of which want a running daemon and
+          an MPRIS bridge that module provides.
+        '';
+      }
+    ];
+
+    home.packages = [
+      ticker
+      shuffleStatus
+      repeatStatus
+      repeatCycle
+    ]
+    ++ lib.optional (cfg.browserScript != null) cfg.browserScript;
+
+    nixSpace.waybar.modules = {
+      "custom/mpd_prev" = {
+        format = cfg.icons.previous;
+        tooltip-format = "Previous track";
+				tooltip = true;
+        on-click = "${playerctl} previous";
+        style = # css
+          ''
+            #custom-mpd_prev {
+            	color: ${config.nixSpace.waybar.accentColor};
+            }
+          '';
+      };
+
+      "custom/playerctl" = {
+        format = "<span>{}</span>";
+        return-type = "json";
+        tooltip = true;
+        max-length = cfg.maxLength;
+
+        # One second, because the ticker advances its own offset per call —
+        # this interval is the scroll rate, not a refresh rate.
+        interval = 1;
+
+        exec = lib.getExe ticker;
+
+        on-click = "${playerctl} play-pause";
+        on-scroll-up = "${playerctl} next";
+        on-scroll-down = "${playerctl} previous";
+
+        # on-click-middle is contributed by the Hyprland visualiser popout,
+        # which may not be present. waybar.modules merges per field.
+
+        style = # css
+          ''
+            #custom-playerctl.playing {
+            	color: ${config.nixSpace.waybar.accentColor};
+            }
+
+            #custom-playerctl.paused {
+            	color: #627180;
+            ;
+            }
+
+            #custom-playerctl.stopped {
+            	color: #384047;
+            }
+          '';
+      }
+      // lib.optionalAttrs (cfg.browserScript != null) {
+        on-click-right = lib.getExe cfg.browserScript;
+      };
+
+      "custom/mpd_next" = {
+        format = cfg.icons.next;
+        tooltip-format = "Next track";
+				tooltip = true;
+        on-click = "${playerctl} next";
+        style = # css
+          ''
+            #custom-mpd_next {
+            	color: ${config.nixSpace.waybar.accentColor};
+            }
+          '';
+      };
+
+      "custom/mpd_shuffle" = {
+        return-type = "json";
+				tooltip-format = "Shuffle track";
+				tooltip = true;
+        exec = lib.getExe shuffleStatus;
+        interval = 1;
+        on-click = "${mpc} random";
+
+        style = ''
+          #custom-mpd_shuffle.on {
+          	color: ${config.nixSpace.waybar.accentColor};
+          }
+
+          #custom-mpd_shuffle.off {
+          	color: #6b6b6b;
+          }
+        '';
+      };
+
+      "custom/mpd_repeat" = {
+        return-type = "json";
+				tooltip-format = "Repeat track/playlist";
+				tooltip = true;
+        exec = lib.getExe repeatStatus;
+        interval = 1;
+        on-click = lib.getExe repeatCycle;
+
+        style = ''
+          #custom-mpd_repeat.off {
+          	color: #6b6b6b;
+          }
+
+          #custom-mpd_repeat.playlist,
+          #custom-mpd_repeat.track {
+          	color: ${config.nixSpace.waybar.accentColor};
+          }
+        '';
+      };
+    };
+  };
+}

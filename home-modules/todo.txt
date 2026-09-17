@@ -1,0 +1,23 @@
+# Auto-mount and copy file(s) to USB with udisksctl
+cp-usb 
+- check for udiskctl mounts
+- if > 1 abort
+- if 1 cp
+- detect USB
+- udisksctl mount
+- cp
+- unmount
+
+pv timer/progress-bar
+
+# programs / packages / binary / services lister
+Breakdown by:
+nixSpace programs / binaries
+homeManager programs / binaries
+NixOS programs / binaries
+nixSpace services
+homeManager services
+NixOS services
+user/system services
+
+make-nix script: coordinated check/rebuild of home and nixOS, set boot spec?

@@ -1,0 +1,635 @@
+# Hyprland desktop bundle.
+#
+# This is an opionated configuration focused on a keyboard workflow with vim
+# key bindings and modern CLI utilities. It includes a hyprland configuration
+# that provides: binds, waybar with widgets, window rules, notification daemon,
+# and a which-key menu.
+#
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.nixSpace.hyprdesktop;
+
+  # System version tooltip. Reads /etc/os-release, uname, and nix --version
+  nixInfo =
+    pkgs.writeShellScriptBin "nix-info" # sh
+      ''
+        set -eu
+
+        _kernel="$(${pkgs.coreutils}/bin/uname -r)"
+        _nix="$(nix --version 2>/dev/null || printf 'nix: unknown')"
+        _os_title=""
+
+        if [ -r /etc/os-release ]; then
+        	_os="$(${pkgs.gnugrep}/bin/grep '^NAME=' /etc/os-release \
+        		| ${pkgs.coreutils}/bin/cut -f2 -d= \
+        		| ${pkgs.coreutils}/bin/tr -d '"')"
+        	_os_ver="$(${pkgs.gnugrep}/bin/grep '^VERSION=' /etc/os-release \
+        		| ${pkgs.coreutils}/bin/cut -f2 -d= \
+        		| ${pkgs.coreutils}/bin/tr -d '"')"
+        	_os_title="''${_os}: ''${_os_ver}"
+        fi
+
+        # \r rather than \n: waybar renders tooltips as Pango markup, where a
+        # literal newline in JSON is collapsed but a carriage return breaks
+        # the line.
+        ${pkgs.jq}/bin/jq -c -n \
+        	--arg os "''${_os_title}" \
+        	--arg kernel "Kernel: ''${_kernel}" \
+        	--arg nix "''${_nix}" \
+        	'{ "text": "", "tooltip": "\($os)\r\($kernel)\r\($nix)" }'
+      '';
+in
+{
+  options.nixSpace.hyprdesktop = {
+    enable = lib.mkEnableOption "Hyprland desktop environment bundle";
+
+    launcher = lib.mkOption {
+      type = lib.types.str;
+      default = config.nixSpace.programs.launchers.primaryCommand;
+      description = ''
+        Application launcher command.
+
+        Separate from the compositor preset's own launcher option so the
+        bundle can standardise on one while a bare compositor user keeps
+        theirs.
+      '';
+    };
+
+    snowflake = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Add the nix snowflake widget: OS, kernel, and nix version in a
+        tooltip, with hyprsysteminfo on right-click.
+      '';
+    };
+
+    displaySettings = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Add a widget launching wdisplays for monitor arrangement.
+      '';
+    };
+
+    audioControl = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Install pavucontrol.
+      '';
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+
+    nixSpace = {
+      workstationCommon.enable = true;
+      fonts = {
+        msCoreFonts = true;
+        extraPackages = [
+          pkgs.fira-code
+        ];
+      };
+
+      waybar = {
+        enable = lib.mkDefault true;
+        mpdBrowser.enable = lib.mkDefault true;
+        hyprlandWorkspaces = true;
+
+        # A widget definition alone does not appear on the bar: the feature
+        # module defines it, this places it.
+        #
+        # One entry covers three features: pomodoro defines the clock widget,
+        # calendar attaches its popup to the same key, and both merge per field.
+        modulesCenter = lib.optional cfg.pomodoro.enable "custom/clock";
+
+        # Replaces the waybar module's default left list, which holds only the
+        # workspace widget. Placement lists do not merge, so this must name
+        # everything on the left, in order.
+        modulesLeft = lib.optional cfg.snowflake "custom/snowflake" ++ [
+          "hyprland/workspaces"
+          "tray"
+        ];
+
+        # Replaces the waybar module's default right-hand list rather than
+        # appending: placement lists do not merge, so assigning here takes
+        # ownership of the order.
+        modulesRight =
+          lib.optionals config.nixSpace.waybar.mpd.enable [
+            "custom/mpd_prev"
+            "custom/playerctl"
+            "custom/mpd_next"
+            "custom/mpd_shuffle"
+            "custom/mpd_repeat"
+          ]
+          ++ [
+            "pulseaudio"
+          ]
+          ++ lib.optional config.nixSpace.waybar.backlight.enable "backlight"
+          ++ lib.optional cfg.displaySettings "custom/wdisplays"
+          ++ [
+            "battery"
+          ];
+
+        # NO pulseaudio/battery/tray/clock definitions here. The waybar module's
+        # widgets.nix owns those, and defining them in both places is a
+        # conflicting definition on every shared field.
+        modules = lib.mkMerge [
+          (lib.mkIf cfg.snowflake {
+            "custom/snowflake" = {
+              style = ''
+                #custom-snowflake {
+                	padding: 0 12px 0 10px;
+                	font-size: 16px;
+                }
+              '';
+
+              format = "❄️";
+              return-type = "json";
+
+              # tooltip is the output of the widget.
+              tooltip = true;
+
+              exec = lib.getExe nixInfo;
+
+              # Hourly. The values change only on a rebuild, and a shorter
+              # interval spawns nix --version repeatedly for nothing.
+              interval = 3600;
+
+              on-click = "${lib.getExe pkgs.libnotify} 'Nix Info' \"$(${lib.getExe nixInfo} | ${lib.getExe pkgs.jq} -r '.tooltip')\"";
+              on-click-right = lib.getExe' pkgs.hyprsysteminfo "hyprsysteminfo";
+            };
+          })
+
+          (lib.mkIf cfg.displaySettings {
+            "custom/wdisplays" = {
+              style = ''
+                #custom-wdisplays {
+                	color: ${config.nixSpace.waybar.accentColor};
+                }
+              '';
+
+              format = "󰹑";
+              tooltip = true;
+              tooltip-format = "Display Settings";
+
+              # Absolute store path rather than a bare name: the widget must
+              # work whether or not wdisplays is on the session PATH.
+              on-click = lib.getExe' pkgs.wdisplays "wdisplays";
+            };
+          })
+        ];
+      };
+
+      hyprdesktop = {
+        calendar = {
+          enable = lib.mkDefault true;
+          notifications.enable = lib.mkDefault true;
+        };
+        pomodoro = {
+          enable = lib.mkDefault true;
+          package = pkgs.nsPkgs.pomodoro-timer;
+
+          activityIntervals = [
+            1
+            10
+            15
+            25
+            50
+            75
+          ];
+          restIntervals = [
+            1
+            5
+            10
+            15
+          ];
+          defaultActivityName = "Focus";
+
+          music = {
+            activityPlaylist = "focus";
+            restPlaylist = "chill";
+          };
+
+          transitionImage = {
+            activity = "${config.xdg.userDirs.pictures}/pomodoro/focus";
+            rest = "${config.xdg.userDirs.pictures}/pomodoro/chill";
+            durationSeconds = 10;
+          };
+        };
+
+        idle.enable = lib.mkDefault true;
+        lock = {
+          enable = lib.mkDefault true;
+          background = "${config.xdg.userDirs.pictures}/wallpapers/hyprlock.jpg";
+          placeholderText = "Speak friend...";
+        };
+        mpdVisualizer.enable = lib.mkDefault true;
+        portals.enable = lib.mkDefault true;
+        wallpaper = {
+          enable = lib.mkDefault true;
+          picker = lib.mkDefault true;
+        };
+
+      };
+      programs = {
+        shells = {
+          aliases = {
+            df = "duf";
+            du = "dust";
+            grep = "grep --color";
+            "?" = "smart_help";
+            zf = "zfile";
+          };
+          bash = {
+            loginGreeting.fastfetch = true;
+          };
+        };
+
+        launchers = {
+          rofi.enable = lib.mkDefault true;
+          primary = "rofi";
+        };
+
+        yazi = {
+          keymaps = [
+            {
+              on = [
+                "g"
+                "p"
+              ];
+              run = "cd ${config.xdg.userDirs.projects}";
+              desc = "go ${config.xdg.userDirs.projects}";
+            }
+          ];
+        };
+      };
+
+      security = {
+        filevaults = {
+          enable = lib.mkDefault true;
+        };
+      };
+
+      services = {
+        dunst.enable = lib.mkDefault true;
+        mpd.enable = lib.mkDefault true;
+      };
+
+      hyprland.hyprWhichKey = {
+        hypr = {
+          keyVars = {
+            "$mainMod" = "SUPER";
+            "$shiftMod" = "SHIFT";
+            "$altMod" = "ALT";
+          };
+
+          printMods = {
+            "SUPER" = "Super";
+            "SHIFT" = "Shift";
+            "CTRL" = "Ctrl";
+            "ALT" = "Alt";
+          };
+
+          extraBinds = [
+            {
+              mods = [ "$mainMod" ];
+              key = "F1";
+              action = {
+                type = "exec";
+                cmd = "rofi-help-menu";
+              };
+            }
+          ];
+        };
+
+        settings = {
+          leaderMods = [ "$mainMod" ];
+          leaderKey = "space";
+          style = {
+            anchor = "center";
+            background = "#282828d0";
+            border = "#4688fa";
+            borderWidth = 5;
+            cornerRnd = 15;
+            color = "#96e9fa";
+            font = "JetBrainsMono Nerd Font 24";
+            rowsPerColumn = 25;
+          };
+
+          menu.groups = {
+            apps = {
+              desc = "Apps/Launchers";
+              key = "a";
+            };
+            screen = {
+              submenu = [
+                {
+                  desc = "Recording";
+                  key = "r";
+                  fromGroup = "recording";
+                }
+              ];
+            };
+            recording = {
+              key = "r";
+              desc = "Recording";
+            };
+            help = {
+              desc = "Help";
+              key = "?";
+              submenu = [
+                {
+                  key = "F1";
+                  desc = "Searchable help";
+                  cmd = "rofi-help-menu";
+                }
+              ];
+            };
+          };
+
+          menu.root = [
+            "help"
+            "apps"
+            "power"
+            "screen"
+            "window"
+            "workspaces"
+          ];
+
+          menu.entries.apps = [
+            {
+              desc = "Calculator";
+              menuKey = "c";
+              cmd = "rofi -show-icons -combi-modi drun,run -show calc";
+            }
+            {
+              desc = "ElementDesktop";
+              menuKey = "e";
+              cmd = "element-desktop";
+            }
+            {
+              desc = "Firefox";
+              menuKey = "f";
+              cmd = "firefox";
+            }
+            {
+              desc = "Clipboard History";
+              menuKey = "h";
+              cmd = "cliphist list | rofi -dmenu -display-columns 2 | cliphist decode | wl-copy";
+            }
+            {
+              desc = "eMoji Picker";
+              menuKey = "m";
+              cmd = "rofi -show-icons -combi-modi drun,run -show emoji";
+            }
+            {
+              desc = "standardNotes";
+              menuKey = "n";
+              cmd = "standardnotes";
+            }
+            {
+              desc = "OnlyOffice";
+              menuKey = "o";
+              cmd = "onlyoffice-desktopeditors";
+            }
+            {
+              desc = "Terminal";
+              menuKey = "q";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "q";
+                action = {
+                  type = "exec";
+                  cmd = config.nixSpace.programs.terminals.primaryCommand;
+                };
+              };
+            }
+            {
+              desc = "Run";
+              menuKey = "r";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "r";
+                action = {
+                  type = "exec";
+                  cmd = "rofi -show-icons -combi-modi drun,run -show combi";
+                };
+              };
+            }
+            {
+              desc = "SignalDesktop";
+              menuKey = "s";
+              cmd = "signal-desktop --use-tray-icon";
+            }
+            {
+              desc = "Tmux";
+              menuKey = "t";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "t";
+                action = {
+                  type = "exec";
+                  cmd = "${config.nixSpace.programs.terminals.primaryCommand} -e tmux new-session -A -s main";
+                };
+              };
+            }
+            {
+              desc = "yUbikey Oath";
+              menuKey = "u";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "u";
+                action = {
+                  type = "exec";
+                  cmd = "yubioath-flutter";
+                };
+              };
+            }
+            {
+              desc = "Yazi";
+              menuKey = "y";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "y";
+                action = {
+                  type = "exec";
+                  cmd = "${config.nixSpace.programs.terminals.primaryCommand} -e yazi";
+                };
+              };
+            }
+          ];
+
+          menu.entries.window = [
+            # Scrolling layout commands
+            {
+              desc = "Focus column left";
+              menuKey = "h";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                  "$altMod"
+                ];
+                key = "h";
+                action = {
+                  type = "layoutmsg";
+                  message = "focus l";
+                };
+              };
+            }
+            {
+              desc = "Focus column right";
+              menuKey = "l";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                  "$altMod"
+                ];
+                key = "l";
+                action = {
+                  type = "layoutmsg";
+                  message = "focus r";
+                };
+              };
+            }
+            {
+              desc = "Swap column left";
+              menuKey = "[";
+              hyprBind = {
+                mods = [
+                  "$altMod"
+                  "$shiftMod"
+                ];
+                key = "h";
+                action = {
+                  type = "layoutmsg";
+                  message = "swapcol l";
+                };
+              };
+            }
+            {
+              desc = "Swap column right";
+              menuKey = "]";
+              hyprBind = {
+                mods = [
+                  "$altMod"
+                  "$shiftMod"
+                ];
+                key = "l";
+                action = {
+                  type = "layoutmsg";
+                  message = "swapcol r";
+                };
+              };
+            }
+            {
+              desc = "Toggle waybar";
+              menuKey = "w";
+              hyprBind = {
+                mods = [ "$mainMod" ];
+                key = "w";
+                action = {
+                  type = "exec";
+                  cmd = "pkill -SIGUSR1 waybar";
+                };
+              };
+            }
+          ];
+
+          menu.entries.recording = [
+            {
+              desc = "Record";
+              menuKey = "r";
+              cmd = "wf-recorder -f ${config.xdg.userDirs.videos}/wfr-$(date +%Y-%m-%dT%H-%M-%S).mkv";
+            }
+            {
+              desc = "Stop Recording";
+              menuKey = "s";
+              cmd = "pkill wf-recorder";
+            }
+          ];
+
+          menu.entries.workspaces = [
+            {
+              desc = "Workspace next";
+              menuKey = "d";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                ];
+                key = "mouse_down";
+                action = {
+                  type = "dispatch";
+                  dispatch = "workspace";
+                  arg = "e+1";
+                };
+
+              };
+            }
+            {
+              desc = "Workspace prev";
+              menuKey = "u";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                ];
+                key = "mouse_up";
+                action = {
+                  type = "dispatch";
+                  dispatch = "workspace";
+                  arg = "e-1";
+                };
+
+              };
+            }
+            {
+              desc = "Toggle scratch workspace";
+              menuKey = "s";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                ];
+                key = "s";
+                action = {
+                  type = "dispatch";
+                  dispatch = "togglespecialworkspace";
+                  arg = "magic";
+                };
+              };
+            }
+            {
+              desc = "Move window to scratch workspace";
+              menuKey = "S";
+              hyprBind = {
+                mods = [
+                  "$mainMod"
+                  "$shiftMod"
+                ];
+                key = "S";
+                action = {
+                  type = "dispatch";
+                  dispatch = "movetoworkspace";
+                  arg = "special:magic";
+                };
+              };
+            }
+          ];
+        };
+      };
+    };
+
+    home.packages =
+      lib.optionals cfg.snowflake [
+        nixInfo
+        pkgs.hyprsysteminfo
+      ]
+      ++ lib.optional cfg.displaySettings pkgs.wdisplays
+      ++ lib.optional cfg.audioControl pkgs.pavucontrol;
+  };
+}
