@@ -13,7 +13,7 @@ let
 in
 {
   imports = [
-    ./fzf
+    ./fzf-launcher
     ./rofi
   ];
 
