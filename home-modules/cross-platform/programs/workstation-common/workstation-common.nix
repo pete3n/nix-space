@@ -57,8 +57,8 @@ in
         };
 
         terminals = {
-          ghostty.enable = lib.mkDefault true;
-          primary = lib.mkDefault "ghostty";
+          ghostty.enable = lib.mkDefault isLinux;
+          primary = lib.mkDefault (if isLinux then "ghostty" else "kitty");
         };
 
         multiplexers.tmux.enable = lib.mkDefault true;
