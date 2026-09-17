@@ -21,8 +21,6 @@ let
   piperModel = "${cfg.modelDir}/piper/${cfg.piperVoice}.onnx";
   whisperModel = "${cfg.modelDir}/whisper/${cfg.whisperModel}.bin";
 
-  whisperPackage = pkgs.whisper-cpp-vulkan;
-
   # Shared by ai-speak and ai-read. PIPER_MODEL and AUDIO_PLAYER can both be
   # overridden from the environment for a one-off voice or output.
   ttsHeader = # sh
@@ -74,7 +72,7 @@ let
 
   aiTranscribe = pkgs.writeShellApplication {
     name = "ai-transcribe";
-    runtimeInputs = [ whisperPackage ];
+    runtimeInputs = [ cfg.whisperPackage ];
 
     text = # sh
     ''
@@ -120,6 +118,17 @@ in
       '';
     };
 
+    whisperPackage = mkOption {
+      type = types.package;
+      default = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.whisper-cpp else pkgs.whisper-cpp-vulkan;
+      defaultText = lib.literalExpression "pkgs.whisper-cpp-vulkan, or pkgs.whisper-cpp on darwin";
+      description = ''
+        whisper.cpp build. The Vulkan variant is the portable GPU choice on
+        Linux; on darwin the plain build uses Metal, and the Vulkan one has
+        no backend to talk to.
+      '';
+    };
+
     audioPlayer = mkOption {
       type = types.str;
       default = "${pkgs.pulseaudio}/bin/paplay --raw --rate=22050 --format=s16le --channels=1";
@@ -155,14 +164,20 @@ in
 
   config = mkIf (config.nixSpace.programs.aichat.enable && cfg.enable) {
     home.packages = [
-      pkgs.piper-tts
       pkgs.poppler-utils # pdftotext, for PDF reading and RAG
       pkgs.pandoc # docx/doc conversion
-      whisperPackage
+      cfg.whisperPackage
       modelsFetch
+      aiTranscribe
+    ]
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      # piper-tts depends on pysilero-vad, which nixpkgs marks broken on
+      # darwin. The two scripts that pipe through piper go with it: macOS
+      # has `say` built in and could cover the same ground, but ai-speak and
+      # ai-read would need a darwin branch to use it.
+      pkgs.piper-tts
       aiSpeak
       aiRead
-      aiTranscribe
     ];
   };
 }
