@@ -95,37 +95,44 @@ in
 
   config = lib.mkIf cfg.enable {
     home.packages =
-      (with pkgs; [
-        # Recon and scanning
-        chisel
-        ligolo-ng
-        masscan
-        ngrep
-        nmap
-        proxychains
-        rustscan
-        socat
-        whois
+      (
+        with pkgs;
+        [
+          # Recon and scanning
+          chisel
+          masscan
+          ngrep
+          nmap
+          rustscan
+          socat
+          whois
 
-        # Capture and analysis
-        wireshark
-        termshark
+          # Capture and analysis
+          wireshark
+          termshark
 
-        # Binary analysis
-        binwalk
-        bingrep
-      ])
+          # Binary analysis
+          binwalk
+          bingrep
+        ]
+        ++ lib.optionals isLinux [
+          ligolo-ng
+          proxychains
+        ]
+      )
       ++ lib.optionals cfg.wireless (
         with pkgs;
         [
           aircrack-ng
+          gpsd
+        ]
+        ++ lib.optional isLinux [
           angryoxide
           bettercap
-          gpsd
+          hcxdumptool
           hcxtools
+          reaverwps-t6x
         ]
-        ++ lib.optional isLinux pkgs.hcxdumptool
-        ++ lib.optional isLinux pkgs.reaverwps-t6x
       )
       ++ lib.optional cfg.cracking pkgs.hashcat
       ++ lib.optional (cfg.sdr.gnuradio != null) cfg.sdr.gnuradio
