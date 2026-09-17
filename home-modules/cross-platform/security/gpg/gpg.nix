@@ -15,11 +15,10 @@ let
 
   pinentryAuto = pkgs.writeShellApplication {
     name = "pinentry-auto";
-    runtimeInputs = [ ];
     text = ''
       PINENTRY_GUI="${lib.getExe cfg.pinentry.graphical}"
       PINENTRY_TTY="${lib.getExe cfg.pinentry.terminal}"
-
+      GRAPHICAL_ALWAYS=${if pkgs.stdenv.hostPlatform.isDarwin then "1" else "0"}
     ''
     + builtins.readFile ./pinentry-auto.sh;
   };
