@@ -126,8 +126,8 @@ in
         pkgs.yt-dlp
       ]
       ++ lib.optional cfg.metadata pkgs.exiftool
-      ++ lib.optionals (cfg.capture && isLinux) pkgs.wf-recorder
-      ++ lib.optionals cfg.capture pkgs.asciinema
+      ++ lib.optional (cfg.capture && isLinux) pkgs.wf-recorder
+      ++ lib.optional cfg.capture pkgs.asciinema
       ++ cfg.extraPackages;
 
     # Contributed from here rather than assembled in the xdg module: the

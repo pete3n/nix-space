@@ -33,8 +33,8 @@ in
         through the driver's OpenCL ICD without anything extra here. Its CUDA
         backend additionally wants the CUDA runtime and NVRTC in the closure,
         which this does not provide, so it logs two init failures at startup
-        and falls back to OpenCL (still using GPU), within a few percent of 
-        CUDA on most modes. 
+        and falls back to OpenCL (still using GPU), within a few percent of
+        CUDA on most modes.
 
         A real CPU fallback only happens when no GPU runtime is visible at
         all.
@@ -126,7 +126,7 @@ in
           aircrack-ng
           gpsd
         ]
-        ++ lib.optional isLinux [
+        ++ lib.optionals isLinux [
           angryoxide
           bettercap
           hcxdumptool
