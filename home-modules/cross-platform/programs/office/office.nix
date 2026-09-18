@@ -145,18 +145,21 @@ in
       };
     };
 
-    pdfViewer.enable = lib.mkOption {
-      type = lib.types.bool;
-      default = pkgs.stdenv.hostPlatform.isLinux;
-      defaultText = lib.literalExpression "pkgs.stdenv.hostPlatform.isLinux";
-      description = ''
-        Install a PDF viewer.
+    pdfViewer = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = pkgs.stdenv.hostPlatform.isLinux;
+        defaultText = lib.literalExpression "pkgs.stdenv.hostPlatform.isLinux";
+        description = ''
+          Install a PDF viewer.
 
-        Linux only by default: macOS has Preview, which is both the system
-        default and what other applications hand PDFs to. zathura also
-        fails to build on aarch64-darwin — appstream, one of its
-        dependencies, mislinks there.
-      '';
+          Linux only by default: macOS has Preview, which is both the system
+          default and what other applications hand PDFs to. zathura also
+          fails to build on aarch64-darwin — appstream, one of its
+          dependencies, mislinks there.
+        '';
+      };
+
       package = lib.mkOption {
         type = lib.types.package;
         default = pkgs.zathura;
@@ -166,6 +169,7 @@ in
           Which PDF viewer package to install.
         '';
       };
+
       desktopFile = lib.mkOption {
         type = lib.types.str;
         default = "org.pwmt.zathura.desktop";
