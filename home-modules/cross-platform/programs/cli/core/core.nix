@@ -5,7 +5,7 @@
 #   from the platform.
 #
 #   Aliases: This module creates aliases for some packages, e.g. `ls = "lsd"`
-#		ships with the package that provides lsd.
+#   ships with the package that provides lsd.
 {
   config,
   lib,
@@ -43,7 +43,7 @@ in
         different to each. Alias those in your own config if you want them.
 
         The same reasoning excludes everything in `utilities`: sd takes a
-        different regex dialect to sed, procs takes different flags to ps. 
+        different regex dialect to sed, procs takes different flags to ps.
         None are drop-in.
       '';
     };
@@ -138,15 +138,15 @@ in
 
     hardware = lib.mkOption {
       type = lib.types.bool;
-      default = pkgs.stdenv.hostPlatform.isLinux;
+      default = isLinux;
       defaultText = lib.literalExpression "pkgs.stdenv.hostPlatform.isLinux";
       description = ''
         Hardware inspection: pciutils (lspci), usbutils (lsusb), acpi, clinfo.
-        clinfo reports the OpenCL platforms actually visible to a process, which 
-        is the fastest way to tell whether a runtime is reaching the GPU as 
+        clinfo reports the OpenCL platforms actually visible to a process, which
+        is the fastest way to tell whether a runtime is reaching the GPU as
         opposed to falling back to CPU.
 
-        Defaults to the platform rather than to true, because these read 
+        Defaults to the platform rather than to true, because these read
         Linux-specific interfaces.
       '';
     };
@@ -168,13 +168,15 @@ in
       type = lib.types.bool;
       default = true;
       description = ''
-        Install the unconfigured utility set: age, jq, gron, jc, sd, rsync, zip,
-        unzip, file, lsof, duf, dust, procs, most, tldr, entr, hyperfine,
-        fdupes, repgrep.
+        Install the unconfigured utility set: gron, jc, jq, gnumake, entr,
+        fdupes, file, most, repgrep, vim, sd, rsync, cdrtools, unzip, zip,
+        lsof, duf, dust, procs, tldr, navi, nb.
 
-        All are portable across Linux and Darwin. entr uses kqueue rather than
-        inotify on darwin and procs reads libproc rather than /proc, but both
-        work.
+        All of those are portable across Linux and Darwin. entr uses kqueue
+        rather than inotify on darwin and procs reads libproc rather than
+        /proc, but both work.
+
+        udisks is added on Linux only: it has no darwin build.
       '';
     };
 
@@ -264,7 +266,12 @@ in
           # TODO: Offline repo clones for TLDR and Navi
 
         ]
-        ++ lib.optionals isLinux pkgs.udisks
+        # A LIST, even for one package: lib.optionals takes a list, and given
+        # a bare derivation it returns that derivation, which then fails the
+        # ++ with "expected a list but found a set". lib.optional (singular)
+        # would also work; a list is used so a second Linux-only utility can
+        # be added without changing the function.
+        ++ lib.optionals isLinux [ pkgs.udisks ]
       )
       ++ cfg.extraPackages;
 
