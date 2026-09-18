@@ -18,8 +18,8 @@ in
 
     package = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = pkgs.firefox;
-      defaultText = lib.literalExpression "pkgs.firefox";
+      default = if pkgs.stdenv.hostPlatform.isDarwin then pkgs.firefox-bin else pkgs.firefox;
+      defaultText = lib.literalExpression "pkgs.firefox, or pkgs.firefox-bin on darwin";
       description = ''
         Firefox package to install. Set to `null` to have home-manager manage
         the profile without installing a browser. This is required on darwin, 
