@@ -83,6 +83,14 @@ in
           launcher is not enabled.
         '';
       }
+
+      {
+        assertion = cfg.primary == null || cfg.primaryCommand != null;
+        message = ''
+          nixSpace.programs.launchers.primary is "${toString cfg.primary}", but
+          that launcher is not enabled.
+        '';
+      }
     ];
   };
 }
