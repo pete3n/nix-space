@@ -16,14 +16,14 @@ in
 
     videoPlayer = lib.mkOption {
       type = lib.types.nullOr lib.types.package;
-      default = pkgs.vlc;
-      defaultText = lib.literalExpression "pkgs.vlc";
+      default = if pkgs.stdenv.hostPlatform.isLinux then pkgs.vlc else null;
+      defaultText = lib.literalExpression "pkgs.vlc on Linux, null otherwise";
       description = ''
         Video player, and the owner of that choice fleet-wide.
 
-        Other modules read this rather than naming a player of their own —
-        yazi's video opener and the video MIME associations below both use
-        it — so changing it here changes it everywhere rather than in three
+        Other modules read this rather than naming a player of their own.
+        Yazi's video opener and the video MIME associations below both use
+        it, so changing it here changes it everywhere rather than in three
         files that can drift apart.
 
         null installs no player and contributes no associations, for a host
