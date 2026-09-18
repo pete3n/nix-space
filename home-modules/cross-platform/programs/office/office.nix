@@ -145,23 +145,18 @@ in
       };
     };
 
-    pdfViewer = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-        description = ''
-          Install a PDF viewer and make it the handler for application/pdf.
+    pdfViewer.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = pkgs.stdenv.hostPlatform.isLinux;
+      defaultText = lib.literalExpression "pkgs.stdenv.hostPlatform.isLinux";
+      description = ''
+        Install a PDF viewer.
 
-          Portable: zathura builds and is cached on darwin, but it is a GTK
-          application, so on a machine running no other GTK software it pulls
-          the whole toolkit for one viewer.
-
-          The MIME association only applies where nixSpace.xdg.mimeApps is
-          enabled, which is Linux. On darwin the viewer still installs and
-          yazi's opener still works, since that resolves by store path rather
-          than through MIME.
-        '';
-      };
+        Linux only by default: macOS has Preview, which is both the system
+        default and what other applications hand PDFs to. zathura also
+        fails to build on aarch64-darwin — appstream, one of its
+        dependencies, mislinks there.
+      '';
       package = lib.mkOption {
         type = lib.types.package;
         default = pkgs.zathura;
