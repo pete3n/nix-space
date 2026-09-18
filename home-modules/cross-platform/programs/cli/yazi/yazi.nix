@@ -64,7 +64,8 @@ let
     }
   ];
 
-  pdfViewer = config.nixSpace.programs.office.pdfViewer.package or null;
+  officeCfg = config.nixSpace.programs.office or { };
+  pdfViewer = if (officeCfg.pdfViewer.enable or false) then officeCfg.pdfViewer.package else null;
   videoPlayer = config.nixSpace.programs.media.videoPlayer or null;
 
   # Store paths, not bare names: yazi launched from a compositor keybind
