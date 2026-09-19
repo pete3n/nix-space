@@ -191,6 +191,102 @@ in
             ls "$(nix build --no-link --print-out-paths nixpkgs#zathura^out)/share/applications"
         '';
       };
+
+      zathura = {
+        configure = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = ''
+            Write zathura's configuration through home-manager's
+            programs.zathura module.
+
+            Set false when pdfViewer.package is not zathura: the settings
+            below are zathura's own and mean nothing to another viewer, and
+            the config file would be written for a program that is not there.
+
+            Only the config is delegated. The package still comes from
+            pdfViewer.package via home.packages, so programs.zathura.package
+            is set to null — that null is what its own documentation calls
+            for when the package is already provided, and it keeps
+            pdfViewer.package the single source of truth for what is
+            installed.
+          '';
+        };
+
+        selectionClipboard = lib.mkOption {
+          type = lib.types.enum [
+            "clipboard"
+            "primary"
+            "false"
+          ];
+          default = "clipboard";
+          description = ''
+            Which selection mouse-selected text is written to, as zathura's
+            `selection-clipboard`.
+
+            "clipboard" is the clipboard selection, pasted with Ctrl+V.
+            "primary" is the primary selection, pasted with the middle mouse
+            button or Shift+Insert, and is zathura's own default. The string
+            "false" (not the boolean) disables copying entirely.
+
+            Defaulted to "clipboard" here rather than left at zathura's
+            "primary", because under Wayland primary needs the compositor to
+            implement the primary-selection protocol and most applications
+            paste from clipboard.
+
+            A Wayland selection is also owned by the process that set it and
+            vanishes when that process exits, so copying from zathura and
+            then closing it loses the text unless a clipboard manager such as
+            cliphist is running to take ownership.
+          '';
+        };
+
+        options = lib.mkOption {
+          type =
+            with lib.types;
+            attrsOf (oneOf [
+              str
+              bool
+              int
+              float
+            ]);
+          default = { };
+          example = {
+            default-bg = "#000000";
+            selection-notification = false;
+          };
+          description = ''
+            Further `set` options for zathurarc, passed through to
+            programs.zathura.options. See zathurarc(5).
+
+            An entry here overrides the same key set by selectionClipboard,
+            so `selection-clipboard` can be driven from here instead if some
+            other option is being set alongside it.
+          '';
+        };
+
+        mappings = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          example = {
+            D = "toggle_page_mode";
+            "<Right>" = "navigate next";
+          };
+          description = ''
+            `map` bindings for zathurarc, passed through to
+            programs.zathura.mappings. See zathurarc(5).
+          '';
+        };
+
+        extraConfig = lib.mkOption {
+          type = lib.types.lines;
+          default = "";
+          description = ''
+            Verbatim lines appended to zathurarc, for directives that are
+            neither `set` nor `map`.
+          '';
+        };
+      };
     };
 
     mdPreview = {
