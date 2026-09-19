@@ -66,7 +66,7 @@ let
 
   officeCfg = config.nixSpace.programs.office or { };
   pdfViewer = if (officeCfg.pdfViewer.enable or false) then officeCfg.pdfViewer.package else null;
-  videoPlayer = config.nixSpace.programs.media.videoPlayer or null;
+  videoPlayer = config.nixSpace.programs.mediaPlayers.videoPlayer or null;
 
   # Store paths, not bare names: yazi launched from a compositor keybind
   # inherits the session environment, not a shell's PATH.

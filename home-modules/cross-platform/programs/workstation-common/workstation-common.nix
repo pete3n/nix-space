@@ -69,7 +69,10 @@ in
           }
           (lib.optionalAttrs isLinux {
             mediaCreation.enable = lib.mkDefault true;
-            office.libreoffice.enable = lib.mkDefault true;
+            office = {
+							zathura.enable = lib.mkDefault true;
+              libreoffice.enable = lib.mkDefault true;
+            };
           })
         ];
       }
