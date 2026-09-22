@@ -35,6 +35,14 @@ let
       baseModule = null;
     };
 
+    libvirt-vm = {
+      description = "libvirt/QEMU-KVM virtio guest";
+      family = "pc";
+      modulePath = "hardware/libvirt-vm";
+      isEmbedded = false;
+      baseModule = null;
+    };
+
     mac-mini-m1 = {
       description = "Apple Mac Mini M1";
       family = "apple-silicon";

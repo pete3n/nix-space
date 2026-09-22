@@ -2,6 +2,7 @@
 { ... }:
 {
   imports = [
+    ./archetypes
     ./environment
     ./hardware
     ./networking

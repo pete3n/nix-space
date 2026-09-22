@@ -23,6 +23,9 @@ lib.makeExtensible (
     # Hardware registry for hardware specific configuration.
     hardware = callLib ./hardware.nix;
 
+    # Archetype registry: the shape of a host (workstation vs headless server).
+    archetype = callLib ./archetype.nix;
+
     # Contains lists of all valid tags, tag conditions, and tag functions.
     tags = callLib ./tag-registry.nix;
 

@@ -4,5 +4,6 @@
   imports = [
     ./framework16
     ./gpu
+    ./libvirt-vm
   ];
 }

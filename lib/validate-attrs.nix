@@ -18,6 +18,9 @@ let
   # alongside it.
   optionalAttrs = {
     tags = [ ];
+    # The shape of the host. Defaults to workstation so every existing attrs
+    # file keeps its meaning without being touched.
+    archetype = self.archetype.default;
     specialisations = [ ];
     isHomeAlone = false;
     useHomebrew = false;
@@ -61,6 +64,14 @@ let
       missingAttrs = builtins.filter (key: !(attrs ? ${key})) requiredAttrs;
       unknownAttrs = builtins.filter (key: !builtins.elem key knownAttrs) (builtins.attrNames attrs);
       badTags = self.tags.invalidTags resolvedAttrs.tags;
+      badArchetype = !builtins.elem resolvedAttrs.archetype self.archetype.valid;
+
+      # A server is headless by definition, so a window-manager/compositor tag
+      # on one is a contradiction, not a capability. Caught here rather than
+      # left to fail deep in a desktop module with an opaque message.
+      serverDesktopTags = lib.optionals (self.archetype.isServer resolvedAttrs.archetype) (
+        lib.intersectLists resolvedAttrs.tags self.tags.exclusiveGroups.wm-compositor
+      );
 
       hasChassis = resolvedAttrs.chassis != null;
       validChassis = hasChassis && builtins.elem resolvedAttrs.chassis self.hardware.valid;
@@ -80,6 +91,14 @@ let
         ++ lib.optional (
           badTags != [ ]
         ) "invalid tag(s): ${lib.concatStringsSep ", " badTags} (add to tag-registry.nix to use)"
+
+        ++
+          lib.optional badArchetype
+            "unknown archetype '${showVal resolvedAttrs.archetype}'. Must be one of: ${lib.concatStringsSep ", " self.archetype.valid}"
+
+        ++ lib.optional (
+          serverDesktopTags != [ ]
+        ) "server archetype is headless but carries desktop tag(s): ${lib.concatStringsSep ", " serverDesktopTags}"
 
         # chassis errors
         ++
