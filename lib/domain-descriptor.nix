@@ -1,29 +1,13 @@
-# Domain descriptor registry (ADR-0005).
-#
-# Every value that differs between Identity Domains — the Lab (p22.lan) and the
-# Production org network (nxs.lan) — lives here as data, so the same modules
-# deploy to both by swapping which descriptor they read. This is the single
-# place a per-domain fact is written; modules never hardcode a domain.
-#
-# Scalars only: names, URLs, addresses. Key material (CA certs/keys, SSH CA
-# keys) is NOT stored here — public certs are committed files and private keys
-# are agenix secrets, both referenced by the consuming host. See ADR-0008.
-# The one exception is a PATH to a public key every Fleet host needs, such as
-# the SSH Host CA. The key itself stays a committed file.
-#
-# Started at Step 2 (step-ca) with only the fields step-ca consumes; it grows as
-# later steps (kanidm OIDC, VPN, groups) need more per-domain values.
+# Domain and associated PKI configuration
 { ... }:
 {
   "p22.lan" = {
-    # kanidm's domain / WebAuthn RP-ID. A bare `.p22` is not a valid RP-ID
-    # (ADR-0005), so the identity zone is the registrable `p22.lan`.
+    # kanidm's domain / WebAuthn RP-ID.
     domain = "p22.lan";
     rpId = "p22.lan";
 
     # The certificate authority for this domain. The root is the existing,
-    # offline P22-CA (its cert is already trusted fleet-wide); step-ca runs as
-    # an online intermediate signed by it (ADR-0008).
+    # offline P22-CA; step-ca runs as an online intermediate signed by it.
     ca = {
       rootCn = "P22-CA";
       intermediateCn = "P22 Intermediate CA";
@@ -35,17 +19,16 @@
       allowedDomains = [ "*.p22.lan" ];
       allowedAddresses = [ "192.168.1.0/24" ];
 
-      # The SSH Host CA's public key. Every Fleet host's ssh client trusts it
+      # The SSH Host CA's public key. Every host's ssh client trusts it
       # for this Domain's names (nixSpace.ssh.domainTrust).
       sshHostCAPublicKeyFile = ../hosts/idm1/pki/ssh_host_ca.pub;
     };
 
-    # OIDC issuer for the kanidm-backed provisioner. null until Step 3 stands
-    # kanidm up; step-ca's user/elevated cert flow (ADR-0001/0003) waits on it.
+    # OIDC issuer for the kanidm-backed provisioner.
     oidcIssuer = null;
 
     # Identity Nodes of this domain, keyed by hostname. Numbered to allow an HA
-    # set later (idm2, …). The infra VLAN has no DHCP, so addresses are static.
+    # set later (idm2, …). Assumes addresses are static.
     nodes = {
       idm1 = {
         fqdn = "idm1.p22.lan";
