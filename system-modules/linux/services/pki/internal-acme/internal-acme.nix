@@ -1,17 +1,11 @@
-# Internal ACME — TLS certificates for this host's services from the Identity
-# Domain's step-ca, not from a public CA (ADR-0005: step-ca issues internal TLS).
+# Module to configure internal ACME TLS certificates.
 #
 # A thin layer over NixOS `security.acme` (the lego client). It points lego at
 # step-ca's ACME directory and sets the renewal margin to match step-ca's short
 # certs. Each listed name gets its cert in /var/lib/acme/<name>/ (fullchain.pem,
 # key.pem), which a service like kanidm or nginx then serves.
 #
-# Challenge: http-01. lego briefly listens on port 80 itself, and step-ca calls
-# back to http://<name>/.well-known/acme-challenge/ to check the name resolves
-# to this host. A host that already runs a web server on port 80 would switch
-# to a webroot instead (NixOS `security.acme.certs.<name>.webroot`).
-#
-# Trust: lego must trust step-ca's own HTTPS. It uses the system trust store,
+# lego must trust step-ca's own HTTPS. It uses the system trust store,
 # so this module is only useful on a host that trusts the Domain root
 # (security.pki.certificateFiles, which every p22 host already has).
 {

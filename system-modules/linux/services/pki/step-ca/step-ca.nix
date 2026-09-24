@@ -1,20 +1,7 @@
-# step-ca — the online certificate authority for an Identity Domain.
+# step-ca runs as an intermediate signed once by the domain's offline root
+# (P22-CA), so every certificate it issues chains under a root the domain already
+# trusts.
 #
-# step-ca runs as an INTERMEDIATE signed once by the domain's offline root
-# (P22-CA), so every certificate it issues chains under a root the Fleet already
-# trusts — which is why the Identity Node can serve its own TLS with no
-# self-signed bootstrap (ADR-0008).
-#
-# Step 2 scope: root+intermediate trust, ACME for internal TLS, and the SSH
-# HOST CA (operator-signed first cert via JWK, self-renewal via SSHPOP —
-# ADR-0009). The SSH USER CA key is loaded and its public key published so hosts
-# can trust it, but the OIDC provisioner that actually MINTS user/elevated certs
-# waits on kanidm (Step 3, ADR-0001/0003) — there is deliberately no provisioner
-# that issues user certs here yet.
-#
-# Follows the house service-module shape (see services/crypto/bitcoin): options
-# under `nixSpace.services.*`, self-gated on `enable`, secrets supplied as
-# runtime paths (agenix targets) so no private key ever lands in the Nix store.
 {
   config,
   lib,
@@ -24,7 +11,7 @@ let
   cfg = config.nixSpace.services.step-ca;
   hostProvisioner = cfg.ssh.hostProvisioner;
 
-  # The only names and addresses ANY cert from this CA may carry, shaped as a
+  # The only names and addresses any cert from this CA may carry, shaped as a
   # step-ca name policy. Used for both SSH host and X.509 certs.
   domainNames = {
     dns = cfg.allowedDomains;
@@ -69,7 +56,7 @@ in
       example = lib.literalExpression "../../secrets/certs/p22-ca.crt";
       description = ''
         The domain's offline ROOT certificate (public). This is the same
-        `p22-ca.crt` already installed in the Fleet trust store; step-ca
+        `p22-ca.crt` already installed in the domain trust store; step-ca
         publishes it as the chain root. A public cert, so a store path is fine.
       '';
     };
@@ -78,7 +65,7 @@ in
       type = lib.types.path;
       description = ''
         The intermediate certificate (public), signed once by the offline root.
-        A public cert, so a committed store path is fine — the matching private
+        A public cert, so a committed store path is fine - the matching private
         key is a secret (see `intermediateKeyFile`).
       '';
     };
@@ -88,7 +75,7 @@ in
       example = lib.literalExpression ''config.age.secrets."step-ca/intermediate.key".path'';
       description = ''
         Runtime path to the intermediate private key. Supply an agenix/sops
-        target, NOT a path literal (a literal is copied world-readable into the
+        target, not a path literal (a literal is copied world-readable into the
         store). The decrypted file must be owned by `nixSpace.services.step-ca.user`.
       '';
     };
@@ -120,7 +107,7 @@ in
           password-encrypted, and the password stays with the operator. So no
           fleet host holds anything that can mint another host's certificate.
           After that first cert, the host renews on its own through the SSHPOP
-          provisioner (ADR-0009). null leaves both provisioners out.
+          provisioner. null leaves both provisioners out.
 
           Both files come from `step crypto jwk create` and are safe to commit:
           step-ca publishes the encrypted key on its /provisioners endpoint
@@ -167,8 +154,7 @@ in
         example = lib.literalExpression ''config.age.secrets."step-ca/ssh_user_ca".path'';
         description = ''
           Runtime path to the SSH USER CA private key (agenix target). Loaded now
-          so the key lives in one place; the provisioner that mints user certs
-          from it arrives with kanidm OIDC in Step 3.
+          so the key lives in one place.
         '';
       };
     };
@@ -247,15 +233,14 @@ in
 
       # ca.json. step-ca chains our intermediate under the offline root, serves
       # ACME for internal TLS, and signs SSH host+user certificates. The
-      # provisioners are ACME plus the two SSH HOST-cert ones. None issues user
-      # certs until the kanidm OIDC issuer exists (Step 3).
+      # provisioners are ACME plus the two SSH HOST-cert ones.
       settings = {
         root = cfg.rootCertFile;
         crt = cfg.intermediateCertFile;
         key = cfg.intermediateKeyFile;
         dnsNames = [ cfg.fqdn ];
 
-        # SSH certificate authority: distinct host and user CA keys (ADR-0003).
+        # SSH certificate authority: distinct host and user CA keys.
         ssh = {
           hostKey = cfg.ssh.hostCAKeyFile;
           userKey = cfg.ssh.userCAKeyFile;
@@ -273,8 +258,7 @@ in
         # confirmed out-of-domain host and TLS certs were issued in both cases.
         #
         # There are no `ssh.user` rules yet. User certs are refused by the
-        # `hosts` template below, and Step 3's OIDC provisioner will add the
-        # user rules it needs.
+        # `hosts` template below.
         authority.policy = {
           x509.allow = domainNames;
           ssh.host.allow = domainNames;
