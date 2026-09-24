@@ -7,6 +7,7 @@
 		./hyprland
 		./laptop
 		./networking
+		./pki
 		./printing
 	];
 }

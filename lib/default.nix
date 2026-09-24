@@ -40,5 +40,9 @@ lib.makeExtensible (
 
     # Defines system-level configuration for users.
     users = callLib ./users.nix;
+
+    # Per-domain descriptor registry: the single place a fact that differs
+    # between Identity Domains (Lab vs Production) is written (ADR-0005).
+    domainDescriptor = callLib ./domain-descriptor.nix;
   }
 )
