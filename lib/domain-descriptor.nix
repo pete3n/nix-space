@@ -28,6 +28,10 @@
       # step-ca's own endpoints, served from the Identity Node.
       url = "https://idm1.p22.lan";
       acmeDirectory = "https://idm1.p22.lan/acme/acme/directory";
+      # The only names/addresses any certificate from this domain's CA may
+      # carry (TLS and SSH host certs). step-ca refuses anything else.
+      allowedDomains = [ "*.p22.lan" ];
+      allowedAddresses = [ "192.168.1.0/24" ];
     };
 
     # OIDC issuer for the kanidm-backed provisioner. null until Step 3 stands

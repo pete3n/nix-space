@@ -13,6 +13,11 @@ Required files (the flake will not evaluate until they exist):
   `TrustedUserCAKeys`. Public.
 - `ssh_host_ca.pub` — SSH **host** CA public key. Clients trust it to retire
   `known_hosts`. Public.
+- `hosts-provisioner.pub.json` — public key of step-ca's JWK `hosts`
+  provisioner (operator-signed first host certificate, ADR-0009). Public.
+- `hosts-provisioner.key.jwe` — that provisioner's private key, encrypted with
+  a password the operator keeps. step-ca serves this blob publicly anyway, so
+  committing it is safe. Useless without the password.
 
 Generate and place them with the Step 2 bootstrap command sheet
 (`$CLAUDE_EXCHANGE_DIR/handoff-step2-bootstrap.md`).

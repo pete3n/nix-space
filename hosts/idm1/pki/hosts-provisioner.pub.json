@@ -1,0 +1,9 @@
+{
+  "use": "sig",
+  "kty": "EC",
+  "kid": "H_K2QXzGqCnjBYnSyV4vxMpHMEbV-aqyLMdpQtMZ75Y",
+  "crv": "P-256",
+  "alg": "ES256",
+  "x": "rDa6aWWpHPNUmgDkTvy-4u0eojRBOSheJeWfUOiKKU0",
+  "y": "_KDxYWVWBp5YByOouvN-j4I1xIu0-md9JQpQ52tEWSM"
+}

@@ -2,6 +2,7 @@
 { ... }:
 {
 	imports = [
+		./ssh-host-cert
 		./step-ca
 	];
 }

@@ -6,7 +6,8 @@
 # self-signed bootstrap (ADR-0008).
 #
 # Step 2 scope: root+intermediate trust, ACME for internal TLS, and the SSH
-# HOST CA. The SSH USER CA key is loaded and its public key published so hosts
+# HOST CA (operator-signed first cert via JWK, self-renewal via SSHPOP —
+# ADR-0009). The SSH USER CA key is loaded and its public key published so hosts
 # can trust it, but the OIDC provisioner that actually MINTS user/elevated certs
 # waits on kanidm (Step 3, ADR-0001/0003) — there is deliberately no provisioner
 # that issues user certs here yet.
@@ -21,6 +22,33 @@
 }:
 let
   cfg = config.nixSpace.services.step-ca;
+  hostProvisioner = cfg.ssh.hostProvisioner;
+
+  # The only names and addresses ANY cert from this CA may carry, shaped as a
+  # step-ca name policy. Used for both SSH host and X.509 certs.
+  domainNames = {
+    dns = cfg.allowedDomains;
+    ip = cfg.allowedAddresses;
+  };
+
+  # step-ca's built-in SSH certificate template. The `hosts` provisioner puts a
+  # type check in front of it. Everything after the check must match this
+  # stock template, so the certs themselves come out unchanged.
+  defaultSSHTemplate = ''
+    {
+    	"type": {{ toJson .Type }},
+    	"keyId": {{ toJson .KeyID }},
+    	"principals": {{ toJson .Principals }},
+    	"extensions": {{ toJson .Extensions }},
+    	"criticalOptions": {{ toJson .CriticalOptions }}
+    }'';
+
+  # Both host-cert provisioners (first issuance and renewal) must agree on the
+  # lifetime, or a renewal would quietly change it.
+  hostCertClaims = lib.optionalAttrs (hostProvisioner != null) {
+    defaultHostSSHCertDuration = hostProvisioner.certDuration;
+    maxHostSSHCertDuration = hostProvisioner.certDuration;
+  };
 in
 {
   options.nixSpace.services.step-ca = {
@@ -84,6 +112,56 @@ in
         '';
       };
 
+      hostProvisioner = lib.mkOption {
+        default = null;
+        description = ''
+          The JWK provisioner an operator uses to sign a host's FIRST SSH host
+          certificate (`step ssh certificate --host`). Its private key is
+          password-encrypted, and the password stays with the operator. So no
+          fleet host holds anything that can mint another host's certificate.
+          After that first cert, the host renews on its own through the SSHPOP
+          provisioner (ADR-0009). null leaves both provisioners out.
+
+          Both files come from `step crypto jwk create` and are safe to commit:
+          step-ca publishes the encrypted key on its /provisioners endpoint
+          anyway, and it is useless without the password.
+        '';
+        type = lib.types.nullOr (
+          lib.types.submodule {
+            options = {
+              name = lib.mkOption {
+                type = lib.types.str;
+                default = "hosts";
+                description = "Provisioner name, passed as `step ssh certificate --provisioner`.";
+              };
+
+              publicKeyFile = lib.mkOption {
+                type = lib.types.path;
+                description = "The JWK public key (JSON), from `step crypto jwk create`.";
+              };
+
+              encryptedKeyFile = lib.mkOption {
+                type = lib.types.path;
+                description = ''
+                  The password-encrypted JWK private key, in JWE compact form
+                  (one line, `step crypto jose format` output).
+                '';
+              };
+
+              certDuration = lib.mkOption {
+                type = lib.types.str;
+                default = "720h";
+                description = ''
+                  Host certificate lifetime (30 days). Hosts renew daily, so a
+                  host can be cut off from the CA for most of this window before
+                  clients stop trusting it.
+                '';
+              };
+            };
+          }
+        );
+      };
+
       userCAKeyFile = lib.mkOption {
         type = lib.types.path;
         example = lib.literalExpression ''config.age.secrets."step-ca/ssh_user_ca".path'';
@@ -93,6 +171,24 @@ in
           from it arrives with kanidm OIDC in Step 3.
         '';
       };
+    };
+
+    allowedDomains = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      example = [ "*.p22.lan" ];
+      description = ''
+        DNS names ANY certificate from this CA may carry, whichever provisioner
+        issues it: TLS (X.509) certs and SSH host certs. step-ca refuses
+        anything outside them. The Intermediate CA serves one Domain and should
+        never vouch for a name outside it. Read from the domain descriptor.
+      '';
+    };
+
+    allowedAddresses = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "192.168.1.0/24" ];
+      description = "IP addresses/CIDRs a certificate from this CA may carry. See allowedDomains.";
     };
 
     acme.enable = lib.mkEnableOption "the ACME provisioner for internal TLS" // {
@@ -137,8 +233,8 @@ in
 
       # ca.json. step-ca chains our intermediate under the offline root, serves
       # ACME for internal TLS, and signs SSH host+user certificates. The
-      # provisioner list carries ONLY ACME — no user-cert provisioner until the
-      # kanidm OIDC issuer exists (Step 3).
+      # provisioners are ACME plus the two SSH HOST-cert ones. None issues user
+      # certs until the kanidm OIDC issuer exists (Step 3).
       settings = {
         root = cfg.rootCertFile;
         crt = cfg.intermediateCertFile;
@@ -156,10 +252,58 @@ in
           dataSource = "/var/lib/step-ca/db";
         };
 
-        authority.provisioners = lib.optional cfg.acme.enable {
-          type = "ACME";
-          name = "acme";
+        # CA-wide name limits. They have to live here: step-ca ignores
+        # allow/deny lists in a provisioner's ca.json entry, both as a
+        # top-level `policy` key and under `options`, and only accepts
+        # per-provisioner lists through its admin API. Probes on 2026-09-23
+        # confirmed out-of-domain host and TLS certs were issued in both cases.
+        #
+        # There are no `ssh.user` rules yet. User certs are refused by the
+        # `hosts` template below, and Step 3's OIDC provisioner will add the
+        # user rules it needs.
+        authority.policy = {
+          x509.allow = domainNames;
+          ssh.host.allow = domainNames;
         };
+
+        authority.provisioners =
+          lib.optional cfg.acme.enable {
+            type = "ACME";
+            name = "acme";
+          }
+          ++ lib.optionals (hostProvisioner != null) [
+            # Operator-run first issuance of SSH host certificates.
+            {
+              type = "JWK";
+              inherit (hostProvisioner) name;
+              key = builtins.fromJSON (builtins.readFile hostProvisioner.publicKeyFile);
+              # Trimmed because an editor may leave a trailing newline, and
+              # step-ca would then fail to parse the JWE.
+              encryptedKey = lib.trim (builtins.readFile hostProvisioner.encryptedKeyFile);
+              claims = hostCertClaims // {
+                enableSSHCA = true;
+              };
+
+              # Refuses every user cert. step-ca renders this template for each
+              # SSH cert it signs, and `fail` aborts the signing. (Name limits
+              # are CA-wide, in `authority.policy` above.) The probe on
+              # 2026-09-23 confirmed this refusal works.
+              options.ssh.template = ''
+                {{- if ne .Type "host" }}{{ fail "the hosts provisioner signs SSH host certificates only" }}{{ end -}}
+                ${defaultSSHTemplate}
+              '';
+            }
+            # Renewal: a host proves it holds a still-valid host cert (and its
+            # key) and gets a fresh one with the same principals. No secret
+            # beyond the host's own SSH key is needed.
+            {
+              type = "SSHPOP";
+              name = "sshpop";
+              claims = hostCertClaims // {
+                enableSSHCA = true;
+              };
+            }
+          ];
       };
     };
   };
