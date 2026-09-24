@@ -1,7 +1,6 @@
 # SSH domain trust, client side. This host's ssh client trusts an Identity
 # Domain's SSH Host CA, so any Domain host showing a valid host certificate is
-# recognised without a per-host `known_hosts` entry or a first-connect prompt
-# (ADR-0003, ADR-0009).
+# recognised without a per-host `known_hosts` entry or a first-connect prompt.
 #
 # Cross-platform (NixOS and nix-darwin): it only writes the system-wide
 # known_hosts and ssh_config, which both provide.
@@ -12,8 +11,6 @@
 # and uses that name when it resolves. If it doesn't resolve, ssh uses the
 # short name as before, so nothing that works today stops working.
 #
-# Deliberately NOT here: trusting the SSH USER CA (sshd's TrustedUserCAKeys).
-# That waits for Step 3, which maps kanidm groups to logins.
 {
   config,
   lib,
@@ -31,7 +28,7 @@ in
         lib.optional (hasTag "p22" tags) nixSpaceLib.domainDescriptor."p22.lan"
       '';
       description = ''
-        Domain descriptors (ADR-0005) whose SSH Host CA this host trusts.
+        Domain descriptors whose SSH Host CA this host trusts.
         Each needs `domain`, `ca.allowedDomains` and
         `ca.sshHostCAPublicKeyFile`. Empty (the default) changes nothing.
       '';
