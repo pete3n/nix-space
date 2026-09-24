@@ -1,18 +1,6 @@
-# SSH host certificate — sshd presents a certificate signed by the Domain's SSH
-# Host CA, so clients that trust the CA need no per-host `known_hosts` entry
-# (ADR-0003).
+# SSH host certificate: sshd presents a certificate signed by the Domain's SSH
+# Host CA, so clients that trust the CA need no per-host `known_hosts` entry.
 #
-# How a host gets and keeps its certificate (ADR-0009):
-#   1. First cert: an operator signs the host's public key with step-ca's JWK
-#      `hosts` provisioner and copies the cert to `certFile`. This is a manual
-#      step on purpose: the provisioner password never lives on a fleet host.
-#   2. Renewal: a daily timer swaps the still-valid cert for a fresh one through
-#      step-ca's SSHPOP provisioner. The host proves who it is with its own SSH
-#      key, so it needs no other secret.
-#
-# Before step 1, or if the cert expires while the host can't reach the CA, sshd
-# logs "Could not load host certificate" and keeps serving plain host keys.
-# Clients then fall back to `known_hosts` rather than being locked out.
 {
   config,
   lib,
