@@ -291,7 +291,7 @@ in
     # Only for what is installed, so an alias cannot name a missing program.
     nixSpace.programs.shells.aliases = lib.mkIf cfg.aliases (
       lib.optionalAttrs cfg.bat.enable {
-        cat = "bat";
+        cat = "bat --style plain --pager never";
       }
       // lib.optionalAttrs cfg.lsd {
         lsc = "lsd --classic";
