@@ -2,6 +2,7 @@
 { ... }:
 {
 	imports = [
+		./internal-acme
 		./ssh-host-cert
 		./step-ca
 	];

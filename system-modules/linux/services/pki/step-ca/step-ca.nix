@@ -191,8 +191,22 @@ in
       description = "IP addresses/CIDRs a certificate from this CA may carry. See allowedDomains.";
     };
 
-    acme.enable = lib.mkEnableOption "the ACME provisioner for internal TLS" // {
-      default = true;
+    acme = {
+      enable = lib.mkEnableOption "the ACME provisioner for internal TLS" // {
+        default = true;
+      };
+
+      certDuration = lib.mkOption {
+        type = lib.types.str;
+        default = "168h";
+        description = ''
+          Lifetime of TLS certs issued over ACME (7 days). step-ca's own default
+          is 24h, too short for NixOS's once-a-day renewal check. Seven days
+          still keeps a leaked key's useful life short. Clients renew with a
+          few days to spare (see the internal-acme module), so a CA outage of
+          a few days doesn't take TLS down.
+        '';
+      };
     };
 
     address = lib.mkOption {
@@ -270,6 +284,12 @@ in
           lib.optional cfg.acme.enable {
             type = "ACME";
             name = "acme";
+            # Both default and max. A client can't ask for a longer cert, and
+            # every ACME cert gets the same, predictable lifetime.
+            claims = {
+              defaultTLSCertDuration = cfg.acme.certDuration;
+              maxTLSCertDuration = cfg.acme.certDuration;
+            };
           }
           ++ lib.optionals (hostProvisioner != null) [
             # Operator-run first issuance of SSH host certificates.
