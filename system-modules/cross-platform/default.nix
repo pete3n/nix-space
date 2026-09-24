@@ -4,5 +4,6 @@
   imports = [
     ./nix-cache
     ./remote-builders
+    ./ssh-domain-trust
   ];
 }

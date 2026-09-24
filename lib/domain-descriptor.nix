@@ -8,6 +8,8 @@
 # Scalars only: names, URLs, addresses. Key material (CA certs/keys, SSH CA
 # keys) is NOT stored here — public certs are committed files and private keys
 # are agenix secrets, both referenced by the consuming host. See ADR-0008.
+# The one exception is a PATH to a public key every Fleet host needs, such as
+# the SSH Host CA. The key itself stays a committed file.
 #
 # Started at Step 2 (step-ca) with only the fields step-ca consumes; it grows as
 # later steps (kanidm OIDC, VPN, groups) need more per-domain values.
@@ -32,6 +34,10 @@
       # carry (TLS and SSH host certs). step-ca refuses anything else.
       allowedDomains = [ "*.p22.lan" ];
       allowedAddresses = [ "192.168.1.0/24" ];
+
+      # The SSH Host CA's public key. Every Fleet host's ssh client trusts it
+      # for this Domain's names (nixSpace.ssh.domainTrust).
+      sshHostCAPublicKeyFile = ../hosts/idm1/pki/ssh_host_ca.pub;
     };
 
     # OIDC issuer for the kanidm-backed provisioner. null until Step 3 stands
