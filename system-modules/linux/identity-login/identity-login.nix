@@ -1,16 +1,22 @@
-# Identity login: people from the Identity Domain log in to this host with a
-# short-lived SSH user certificate, and exist here as kanidm accounts.
+# Identity login: people from the Identity Domain log in to this host, and
+# exist here as kanidm accounts.
 #
-# Four pieces, all needed together:
-#   1. sshd trusts the domain's SSH User CA.
-#   2. sshd asks a tiny local script which cert principals may log in as a
-#      given user. The script answers "<group>/<login>" for each group this
-#      host accepts, so the cert must name both the person and an accepted
-#      group. No server is contacted at connect time.
-#   3. kanidm-unixd makes kanidm accounts (like `pete-adm`) exist on this
-#      host, and PAM refuses kanidm accounts outside the accepted groups.
-#   4. Members of the admin group get passwordless sudo. Their cert is
-#      short-lived and cost a fresh passkey touch, which is the real check.
+# Two ways to log in, both ending in the same account checks:
+#   a. Everyday: a YubiKey SSH key (sk-ssh-ed25519) stored on the person's
+#      kanidm account. sshd asks kanidm-unixd for the account's keys, and
+#      kanidm-unixd caches them, so logins keep working while kanidm is
+#      down. For kanidm accounts, sshd also demands the key's PIN, not
+#      just a touch. So `ssh host` is a PIN and a touch, with no browser.
+#   b. A short-lived SSH user cert from step-ca, after a kanidm browser
+#      login. sshd trusts the domain's SSH User CA and asks a tiny local
+#      script which cert principals may log in as a user. The script
+#      answers "<group>/<login>" for each group this host accepts, so the
+#      cert must name both the person and an accepted group.
+#
+# Either way, kanidm-unixd makes kanidm accounts (like `pete-adm`) exist on
+# this host, PAM refuses kanidm accounts outside the accepted groups, and
+# members of the admin group get passwordless sudo. The PIN (or, for a
+# cert, the fresh passkey login) is the real check.
 #
 # Local accounts are untouched. A local user who is also a kanidm person (the
 # interim `pete`) still logs in as the local account, as long as the kanidm
@@ -75,10 +81,22 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    services.openssh.settings = {
-      TrustedUserCAKeys = "${descriptor.ca.sshUserCAPublicKeyFile}";
-      AuthorizedPrincipalsCommand = "/etc/ssh/authorized-principals %u";
-      AuthorizedPrincipalsCommandUser = "nobody";
+    services.openssh = {
+      settings = {
+        TrustedUserCAKeys = "${descriptor.ca.sshUserCAPublicKeyFile}";
+        AuthorizedPrincipalsCommand = "/etc/ssh/authorized-principals %u";
+        AuthorizedPrincipalsCommandUser = "nobody";
+      };
+
+      # A YubiKey key signs with a touch alone unless the server asks for
+      # the PIN too. Only kanidm accounts must use the PIN. Asking every
+      # login would lock out a local account whose older YubiKey key was
+      # made without a PIN. Non-YubiKey keys and certs ignore this setting.
+      extraConfig = lib.mkAfter ''
+        Match Group ${lib.concatStringsSep "," cfg.acceptGroups}
+          PubkeyAuthOptions verify-required
+        Match All
+      '';
     };
 
     # A copied file, not a store symlink: sshd refuses a command unless it and
@@ -94,6 +112,8 @@ in
       client.settings.uri = descriptor.idm.origin;
       unix = {
         enable = true;
+        # sshd looks up a kanidm account's SSH keys through kanidm-unixd.
+        sshIntegration = true;
         settings = {
           kanidm.pam_allowed_login_groups = cfg.acceptGroups;
           # Plain names ("pete-adm") instead of kanidm's default of
