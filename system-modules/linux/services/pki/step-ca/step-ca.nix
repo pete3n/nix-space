@@ -5,6 +5,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -127,6 +128,69 @@ let
       x509.template = ''{{ fail "this provisioner signs SSH user certificates only" }}'';
     };
   };
+
+  # step-ca reads each OIDC provisioner's discovery document when it starts,
+  # and won't start at all if it can't. On the Identity Node that's a trap:
+  # kanidm serves its discovery document with a TLS cert that only this
+  # step-ca can renew. If the cert has expired (the node was off for days) or
+  # is still the NixOS placeholder (a fresh install), step-ca would never
+  # start, so the cert could never be renewed.
+  #
+  # So step-ca checks first. If a discovery document can't be read, it starts
+  # without the kanidm user-cert provisioners. ACME and host certs keep
+  # working, lego renews kanidm's cert, and step-ca then restarts with the
+  # full config (see `rejoinStepCa`). Only user certs wait. With kanidm on
+  # another host there's no rejoin hook: restart step-ca by hand.
+  #
+  # The fallback config is the full one minus the user provisioners.
+  fallbackConfigFile = (pkgs.formats.json { }).generate "ca-fallback.json" (
+    config.services.step-ca.settings
+    // {
+      address = "${cfg.address}:${toString cfg.port}";
+      authority = config.services.step-ca.settings.authority // {
+        provisioners = lib.filter (
+          provisioner: provisioner.type != "OIDC"
+        ) config.services.step-ca.settings.authority.provisioners;
+      };
+    }
+  );
+
+  # Marks a step-ca that started with the fallback config. It lives in
+  # step-ca's runtime directory, so it's gone whenever step-ca stops.
+  fallbackMarker = "/run/step-ca/fallback";
+
+  startStepCa = pkgs.writeShellApplication {
+    name = "step-ca-start";
+    runtimeInputs = [ pkgs.curl ];
+    text = ''
+      config=/etc/smallstep/ca.json
+      for url in ${
+        lib.escapeShellArgs (map (provisioner: provisioner.configurationEndpoint) cfg.ssh.userProvisioners)
+      }; do
+        # The same trust store step-ca uses. A TLS failure isn't retried, so
+        # an expired cert falls back at once. The retries are for a kanidm
+        # that's still coming up.
+        if ! curl --silent --show-error --fail --output /dev/null \
+          --cacert /etc/ssl/certs/ca-certificates.crt \
+          --max-time 5 --retry 4 --retry-delay 2 --retry-connrefused "$url"; then
+          echo "can't read $url, so starting WITHOUT the kanidm user-cert provisioners" >&2
+          config=${fallbackConfigFile}
+          touch ${fallbackMarker}
+          break
+        fi
+      done
+      exec ${config.services.step-ca.package}/bin/step-ca "$config" ${lib.escapeShellArgs config.services.step-ca.extraArgs} \
+        --password-file "$CREDENTIALS_DIRECTORY/intermediate_password"
+    '';
+  };
+
+  # Runs each time kanidm (re)starts, which includes after its cert renews. A
+  # step-ca in fallback restarts, and this time the discovery check passes.
+  rejoinStepCa = pkgs.writeShellScript "step-ca-rejoin" ''
+    if [ -e ${fallbackMarker} ]; then
+      ${pkgs.systemd}/bin/systemctl --no-block try-restart step-ca.service
+    fi
+  '';
 in
 {
   options.nixSpace.services.step-ca = {
@@ -523,14 +587,42 @@ in
       };
     };
 
-    # step-ca reads each OIDC provisioner's discovery document when it starts,
-    # and won't start if it can't. When kanidm runs on this same host, wait for
-    # it. (kanidm doesn't wait for step-ca: its TLS cert is already on disk.)
-    systemd.services.step-ca =
-      lib.mkIf (cfg.ssh.userProvisioners != [ ] && config.services.kanidm.server.enable)
+    systemd.services = lib.mkIf (cfg.ssh.userProvisioners != [ ]) (
+      lib.mkMerge [
         {
-          wants = [ "kanidm.service" ];
-          after = [ "kanidm.service" ];
-        };
+          step-ca.serviceConfig = {
+            # Replaces the NixOS module's command with the launcher above. The
+            # empty entry clears the command from step-ca's own unit file.
+            ExecStart = lib.mkForce [
+              ""
+              "${startStepCa}/bin/step-ca-start"
+            ];
+            RuntimeDirectory = "step-ca";
+          };
+        }
+
+        # When kanidm runs on this same host, wait for it, so the discovery
+        # check doesn't catch it still starting.
+        (lib.mkIf config.services.kanidm.server.enable {
+          step-ca = {
+            wants = [ "kanidm.service" ];
+            after = [ "kanidm.service" ];
+          };
+          # "+" runs it as root, which systemctl needs.
+          kanidm.serviceConfig.ExecStartPost = [ "+${rejoinStepCa}" ];
+        })
+
+        # lego tries to renew once at boot. On the CA's own host, make it wait
+        # for step-ca, or that try fails and a fallback step-ca waits a day for
+        # the next one.
+        (lib.mapAttrs' (
+          cert: _:
+          lib.nameValuePair "acme-order-renew-${cert}" {
+            wants = [ "step-ca.service" ];
+            after = [ "step-ca.service" ];
+          }
+        ) config.security.acme.certs)
+      ]
+    );
   };
 }
