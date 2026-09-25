@@ -5,6 +5,7 @@
 		./ai
 		./crypto
 		./hyprland
+		./identity
 		./laptop
 		./networking
 		./pki

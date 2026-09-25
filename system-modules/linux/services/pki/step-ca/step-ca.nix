@@ -36,6 +36,78 @@ let
     defaultHostSSHCertDuration = hostProvisioner.certDuration;
     maxHostSSHCertDuration = hostProvisioner.certDuration;
   };
+
+  # Elevated identities are named `<user>-adm`. The templates below use the
+  # suffix to keep each identity on its own provisioner.
+  elevatedSuffix = "-adm";
+
+  # The start of every user-cert template. It stops anything that is not a user
+  # cert, and reads the login name kanidm put in the token.
+  userTemplateHead = ''
+    {{- if ne .Type "user" }}{{ fail "this provisioner signs SSH user certificates only" }}{{ end -}}
+    {{- $user := .Token.preferred_username | default "" -}}
+    {{- if not $user }}{{ fail "the kanidm token has no preferred_username" }}{{ end -}}
+  '';
+
+  # The end of every user-cert template: the stock template, except that the
+  # principals are the ones worked out above instead of the ones asked for.
+  userTemplateBody = ''
+    {
+    	"type": {{ toJson .Type }},
+    	"keyId": {{ toJson $user }},
+    	"principals": {{ toJson $principals }},
+    	"extensions": {{ toJson .Extensions }},
+    	"criticalOptions": {{ toJson .CriticalOptions }}
+    }'';
+
+  # A principal is "<group>:<login>", e.g. "p22-ssh:pete". A host lets login L
+  # in when the cert carries "<g>:L" for a group g the host accepts. So one
+  # principal says both who you are and which group lets you in. A cert never
+  # carries a bare login name, so a host with no principals setup lets no one in.
+  userTemplate =
+    provisioner:
+    let
+      groupsClaim = ".Token.${provisioner.groupsClaim}";
+      adminGroup = provisioner.adminGroup;
+    in
+    if provisioner.kind == "standard" then
+      ''
+        ${userTemplateHead}
+        {{- if hasSuffix "${elevatedSuffix}" $user }}{{ fail "elevated identities use the elevated provisioner" }}{{ end -}}
+        {{- $principals := list -}}
+        {{- range (default (list) ${groupsClaim}) }}{{ if ne . "${adminGroup}" }}{{ $principals = append $principals (printf "%s:%s" . $user) }}{{ end }}{{ end -}}
+        {{- if not $principals }}{{ fail "not a member of any SSH group" }}{{ end -}}
+        ${userTemplateBody}
+      ''
+    else
+      ''
+        ${userTemplateHead}
+        {{- if not (hasSuffix "${elevatedSuffix}" $user) }}{{ fail "only elevated (${elevatedSuffix}) identities use this provisioner" }}{{ end -}}
+        {{- if not (has "${adminGroup}" (default (list) ${groupsClaim})) }}{{ fail "not a member of ${adminGroup}" }}{{ end -}}
+        {{- $principals := list (printf "${adminGroup}:%s" $user) -}}
+        ${userTemplateBody}
+      '';
+
+  # One OIDC provisioner entry in ca.json.
+  userProvisionerEntry = provisioner: {
+    type = "OIDC";
+    inherit (provisioner) name configurationEndpoint listenAddress;
+    clientID = provisioner.clientId;
+    # A public kanidm client has no secret. step-ca publishes this value to
+    # every client anyway, so it could never have been a secret.
+    clientSecret = "";
+    claims = {
+      enableSSHCA = true;
+      defaultUserSSHCertDuration = provisioner.defaultCertDuration;
+      maxUserSSHCertDuration = provisioner.certDuration;
+    };
+    options = {
+      ssh.template = userTemplate provisioner;
+      # An OIDC provisioner would otherwise also hand out TLS certs for the
+      # login's email address. These provisioners are for SSH only.
+      x509.template = ''{{ fail "this provisioner signs SSH user certificates only" }}'';
+    };
+  };
 in
 {
   options.nixSpace.services.step-ca = {
@@ -153,9 +225,93 @@ in
         type = lib.types.path;
         example = lib.literalExpression ''config.age.secrets."step-ca/ssh_user_ca".path'';
         description = ''
-          Runtime path to the SSH USER CA private key (agenix target). Loaded now
-          so the key lives in one place.
+          Runtime path to the SSH USER CA private key (agenix target). The
+          `userProvisioners` sign with it.
         '';
+      };
+
+      userProvisioners = lib.mkOption {
+        default = [ ];
+        description = ''
+          OIDC provisioners that sign SSH user certificates after a kanidm
+          login (`step ssh login --provisioner <name>`). Each one pairs with a
+          public kanidm OAuth2 client, which decides who can get a token at all.
+
+          A `standard` provisioner signs everyday certs, one principal per SSH
+          group the person is in. An `elevated` provisioner signs short admin
+          certs for `-adm` identities only. Each refuses the other kind of
+          identity, so an admin cert can never come from the long-lived one.
+        '';
+        type = lib.types.listOf (
+          lib.types.submodule {
+            options = {
+              name = lib.mkOption {
+                type = lib.types.str;
+                example = "kanidm";
+                description = "Provisioner name, passed as `step ssh login --provisioner`.";
+              };
+
+              kind = lib.mkOption {
+                type = lib.types.enum [
+                  "standard"
+                  "elevated"
+                ];
+                description = "Which identities this provisioner signs for, and how.";
+              };
+
+              clientId = lib.mkOption {
+                type = lib.types.str;
+                example = "step-ca";
+                description = "The kanidm OAuth2 client's name. Read it from the domain descriptor.";
+              };
+
+              configurationEndpoint = lib.mkOption {
+                type = lib.types.str;
+                description = "That client's OIDC discovery URL. Read it from the domain descriptor.";
+              };
+
+              certDuration = lib.mkOption {
+                type = lib.types.str;
+                example = "16h";
+                description = "The longest cert this provisioner will sign.";
+              };
+
+              defaultCertDuration = lib.mkOption {
+                type = lib.types.str;
+                example = "12h";
+                description = "The lifetime a cert gets when the login asks for none.";
+              };
+
+              groupsClaim = lib.mkOption {
+                type = lib.types.str;
+                default = "ssh_groups";
+                description = ''
+                  The token claim that lists the person's groups. kanidm fills it
+                  from a claim map on the OAuth2 client.
+                '';
+              };
+
+              adminGroup = lib.mkOption {
+                type = lib.types.str;
+                example = "admins";
+                description = ''
+                  The group that marks Elevated identities. A standard cert never
+                  carries it, and an elevated cert requires it. Read it from the
+                  domain descriptor.
+                '';
+              };
+
+              listenAddress = lib.mkOption {
+                type = lib.types.str;
+                default = "127.0.0.1:10000";
+                description = ''
+                  Where `step ssh login` listens for the browser coming back from
+                  kanidm. It must match one of the client's redirect URLs.
+                '';
+              };
+            };
+          }
+        );
       };
     };
 
@@ -233,7 +389,8 @@ in
 
       # ca.json. step-ca chains our intermediate under the offline root, serves
       # ACME for internal TLS, and signs SSH host+user certificates. The
-      # provisioners are ACME plus the two SSH HOST-cert ones.
+      # provisioners are ACME, the two SSH host-cert ones, and the kanidm-backed
+      # user-cert ones.
       settings = {
         root = cfg.rootCertFile;
         crt = cfg.intermediateCertFile;
@@ -257,8 +414,11 @@ in
         # per-provisioner lists through its admin API. Probes on 2026-09-23
         # confirmed out-of-domain host and TLS certs were issued in both cases.
         #
-        # There are no `ssh.user` rules yet. User certs are refused by the
-        # `hosts` template below.
+        # There are no `ssh.user` rules. The name policy matches whole names,
+        # and user principals ("p22-ssh:pete") are built per person, so it
+        # has nothing useful to match. What limits user certs is the
+        # templates: `hosts` refuses them, and each user provisioner builds
+        # its principals itself and refuses the wrong identities.
         authority.policy = {
           x509.allow = domainNames;
           ssh.host.allow = domainNames;
@@ -307,8 +467,19 @@ in
                 enableSSHCA = true;
               };
             }
-          ];
+          ]
+          ++ map userProvisionerEntry cfg.ssh.userProvisioners;
       };
     };
+
+    # step-ca reads each OIDC provisioner's discovery document when it starts,
+    # and won't start if it can't. When kanidm runs on this same host, wait for
+    # it. (kanidm doesn't wait for step-ca: its TLS cert is already on disk.)
+    systemd.services.step-ca =
+      lib.mkIf (cfg.ssh.userProvisioners != [ ] && config.services.kanidm.server.enable)
+        {
+          wants = [ "kanidm.service" ];
+          after = [ "kanidm.service" ];
+        };
   };
 }
