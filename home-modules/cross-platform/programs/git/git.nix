@@ -49,6 +49,29 @@ let
     ''
     + builtins.readFile ./gitlint-commit-msg.sh;
   };
+
+  # The hook as installed in the user profile. This path never changes, and
+  # always leads to the current build.
+  stableHookPath = "${config.home.profileDirectory}/bin/${commitMsgHook.name}";
+
+  # git copies a template's symlink as written. A store path there would pin
+  # every new repository to the hook build of the day it was cloned, and leave
+  # a dangling link once that build is garbage-collected. So the template link
+  # must name the stable profile path instead. home.file can only make links
+  # into the store, so an activation step writes it.
+  templateHookPath = "${config.home.homeDirectory}/.git-templates/hooks/commit-msg";
+
+  # Repositories cloned before this link existed keep whatever hook they got.
+  # Run this inside one to point it at the stable hook.
+  hookInstaller = pkgs.writeShellApplication {
+    name = "gitlint-hook-install";
+    text = ''
+      hook="$(git rev-parse --git-path hooks)/commit-msg"
+      mkdir -p "$(dirname "$hook")"
+      ln -sfn "${stableHookPath}" "$hook"
+      echo "$hook -> ${stableHookPath}"
+    '';
+  };
 in
 {
   options.nixSpace.programs.git = {
@@ -207,9 +230,10 @@ in
           Install a commit-msg hook in the git template directory, so NEW
           repositories reject non-conforming commit messages.
 
-          Templates apply only at git init and git clone. Existing
-          repositories are unaffected, and there is no retroactive mechanism
-          short of re-running git init in each.
+          Templates apply only at git init and git clone. For an existing
+          repository, run `gitlint-hook-install` inside it once. Either way the
+          repository's hook links to the profile, so later rule changes reach
+          it with no reinstall.
 
           The hook is a hard stop. It fires again on every commit touched by a
           rebase, so an interactive rebase across old non-conforming commits
@@ -316,17 +340,24 @@ in
 
     home.packages =
       lib.optional cfg.gitlint.enable pkgs.gitlint
-      ++ lib.optional (cfg.pager == "diff-so-fancy") pkgs.diff-so-fancy;
+      ++ lib.optional (cfg.pager == "diff-so-fancy") pkgs.diff-so-fancy
+      ++ lib.optionals cfg.gitlint.installHook [
+        commitMsgHook
+        hookInstaller
+      ];
 
     xdg.configFile = mkIf cfg.gitlint.enable {
       gitlint.text = gitlintConfig;
     };
 
-    home.file = mkIf cfg.gitlint.installHook {
-      ".git-templates/hooks/commit-msg" = {
-        source = lib.getExe commitMsgHook;
-        executable = true;
-      };
-    };
+    # After linkGeneration, which removes the home.file link that older
+    # versions of this module put here.
+    home.activation.gitlintTemplateHook = mkIf cfg.gitlint.installHook (
+      lib.hm.dag.entryAfter [ "linkGeneration" ] # sh
+        ''
+          $DRY_RUN_CMD mkdir -p "$(dirname "${templateHookPath}")"
+          $DRY_RUN_CMD ln -sfn "${stableHookPath}" "${templateHookPath}"
+        ''
+    );
   };
 }
