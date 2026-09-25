@@ -13,6 +13,7 @@
 let
   cfg = config.nixSpace.programs.workstationCommon;
   isLinux = pkgs.stdenv.hostPlatform.isLinux;
+  isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
 in
 {
   options.nixSpace.programs.workstationCommon = {
@@ -51,9 +52,11 @@ in
               bash.enable = lib.mkDefault true;
             };
 
+            # nixpkgs builds ghostty for Linux only, so darwin gets kitty.
             terminals = {
-              ghostty.enable = lib.mkDefault true;
-              primary = lib.mkDefault "ghostty";
+              ghostty.enable = lib.mkDefault isLinux;
+              kitty.enable = lib.mkDefault isDarwin;
+              primary = lib.mkDefault (if isLinux then "ghostty" else "kitty");
             };
 
             multiplexers.tmux.enable = lib.mkDefault true;
