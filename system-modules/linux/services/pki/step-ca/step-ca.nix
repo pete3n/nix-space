@@ -49,6 +49,18 @@ let
     {{- if not $user }}{{ fail "the kanidm token has no preferred_username" }}{{ end -}}
   '';
 
+  # Refuses a token whose kanidm login is too old. kanidm reuses a browser
+  # session without asking for the passkey again, and its token says when you
+  # really logged in (`auth_time`). A token with no `auth_time` counts as
+  # infinitely old, so it's refused too. kanidm and step-ca share a clock
+  # on the Identity Node, so there's no skew to allow for.
+  loginAgeCheck =
+    provisioner:
+    lib.optionalString (provisioner.maxLoginAge != null) ''
+      {{- $loginAge := sub (now | unixEpoch | int64) (.Token.auth_time | default 0 | int64) -}}
+      {{- if gt $loginAge ${toString provisioner.maxLoginAge} }}{{ fail "your kanidm login is more than ${toString provisioner.maxLoginAge} seconds old. Log out of kanidm (or use a private window) and try again" }}{{ end -}}
+    '';
+
   # The end of every user-cert template: the stock template, except that the
   # principals are the ones worked out above instead of the ones asked for.
   userTemplateBody = ''
@@ -60,10 +72,15 @@ let
     	"criticalOptions": {{ toJson .CriticalOptions }}
     }'';
 
-  # A principal is "<group>:<login>", e.g. "p22-ssh:pete". A host lets login L
-  # in when the cert carries "<g>:L" for a group g the host accepts. So one
+  # A principal is "<group>/<login>", e.g. "p22-ssh/pete". A host lets login L
+  # in when the cert carries "<g>/L" for a group g the host accepts. So one
   # principal says both who you are and which group lets you in. A cert never
   # carries a bare login name, so a host with no principals setup lets no one in.
+  #
+  # The separator is "/" because the CA-wide name policy sorts principals by
+  # kind. "p22-ssh:pete" looks like a URL ("p22-ssh:" as its scheme), and URL
+  # principals are always refused in user certs. identity-login's principals
+  # script must use the same separator.
   userTemplate =
     provisioner:
     let
@@ -73,18 +90,20 @@ let
     if provisioner.kind == "standard" then
       ''
         ${userTemplateHead}
+        ${loginAgeCheck provisioner}
         {{- if hasSuffix "${elevatedSuffix}" $user }}{{ fail "elevated identities use the elevated provisioner" }}{{ end -}}
         {{- $principals := list -}}
-        {{- range (default (list) ${groupsClaim}) }}{{ if ne . "${adminGroup}" }}{{ $principals = append $principals (printf "%s:%s" . $user) }}{{ end }}{{ end -}}
+        {{- range (default (list) ${groupsClaim}) }}{{ if ne . "${adminGroup}" }}{{ $principals = append $principals (printf "%s/%s" . $user) }}{{ end }}{{ end -}}
         {{- if not $principals }}{{ fail "not a member of any SSH group" }}{{ end -}}
         ${userTemplateBody}
       ''
     else
       ''
         ${userTemplateHead}
+        ${loginAgeCheck provisioner}
         {{- if not (hasSuffix "${elevatedSuffix}" $user) }}{{ fail "only elevated (${elevatedSuffix}) identities use this provisioner" }}{{ end -}}
         {{- if not (has "${adminGroup}" (default (list) ${groupsClaim})) }}{{ fail "not a member of ${adminGroup}" }}{{ end -}}
-        {{- $principals := list (printf "${adminGroup}:%s" $user) -}}
+        {{- $principals := list (printf "${adminGroup}/%s" $user) -}}
         ${userTemplateBody}
       '';
 
@@ -301,6 +320,18 @@ in
                 '';
               };
 
+              maxLoginAge = lib.mkOption {
+                type = lib.types.nullOr lib.types.ints.positive;
+                default = null;
+                example = 300;
+                description = ''
+                  The oldest kanidm login, in seconds, this provisioner signs
+                  for. kanidm reuses a browser session without asking for the
+                  passkey again, so with no limit a cert can come from a login
+                  hours old. `null` means no limit.
+                '';
+              };
+
               listenAddress = lib.mkOption {
                 type = lib.types.str;
                 default = "127.0.0.1:10000";
@@ -385,7 +416,12 @@ in
   config = lib.mkIf cfg.enable {
     services.step-ca = {
       enable = true;
-      inherit (cfg) address port openFirewall intermediatePasswordFile;
+      inherit (cfg)
+        address
+        port
+        openFirewall
+        intermediatePasswordFile
+        ;
 
       # ca.json. step-ca chains our intermediate under the offline root, serves
       # ACME for internal TLS, and signs SSH host+user certificates. The
@@ -396,6 +432,11 @@ in
         crt = cfg.intermediateCertFile;
         key = cfg.intermediateKeyFile;
         dnsNames = [ cfg.fqdn ];
+
+        # Log every request to the journal. Without this, step-ca logs nothing
+        # about requests at all, so a refused cert gives the client only a
+        # generic error and there's no record of what was signed.
+        logger.format = "text";
 
         # SSH certificate authority: distinct host and user CA keys.
         ssh = {
@@ -414,14 +455,24 @@ in
         # per-provisioner lists through its admin API. Probes on 2026-09-23
         # confirmed out-of-domain host and TLS certs were issued in both cases.
         #
-        # There are no `ssh.user` rules. The name policy matches whole names,
-        # and user principals ("p22-ssh:pete") are built per person, so it
-        # has nothing useful to match. What limits user certs is the
-        # templates: `hosts` refuses them, and each user provisioner builds
-        # its principals itself and refuses the wrong identities.
+        # User certs need an `ssh.user` rule too. Once there's a host rule,
+        # step-ca refuses every user cert unless user certs have rules of
+        # their own ("not allowed to sign SSH user certificates when SSH host
+        # certificate policy is active").
+        #
+        # The rule lets any plain principal through. Principals are matched
+        # as whole names, and ours ("p22-ssh/pete") are built for each
+        # person, so there's no narrower pattern to write. The templates are
+        # what limit user certs: `hosts` refuses them, and each user
+        # provisioner builds the principals itself and refuses the wrong
+        # identities. With no `email` rule, a principal that looks like an
+        # email address is still refused.
         authority.policy = {
           x509.allow = domainNames;
           ssh.host.allow = domainNames;
+          # Singular, like `dns` and `ip`. step-ca quietly ignores keys it
+          # doesn't know, and `principals` left user certs with no rules.
+          ssh.user.allow.principal = [ "*" ];
         };
 
         authority.provisioners =

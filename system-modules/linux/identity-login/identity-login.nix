@@ -4,7 +4,7 @@
 # Four pieces, all needed together:
 #   1. sshd trusts the domain's SSH User CA.
 #   2. sshd asks a tiny local script which cert principals may log in as a
-#      given user. The script answers "<group>:<login>" for each group this
+#      given user. The script answers "<group>/<login>" for each group this
 #      host accepts, so the cert must name both the person and an accepted
 #      group. No server is contacted at connect time.
 #   3. kanidm-unixd makes kanidm accounts (like `pete-adm`) exist on this
@@ -26,12 +26,13 @@ let
   descriptor = cfg.domain;
 
   # sshd runs this for every certificate login, passing the login name. Each
-  # line it prints is a principal that may log in as that user.
+  # line it prints is a principal that may log in as that user. The "/" must
+  # match the principals step-ca's user templates build.
   principalsScript = ''
     #!${pkgs.runtimeShell}
     login="$1"
     for group in ${lib.escapeShellArgs cfg.acceptGroups}; do
-      printf '%s:%s\n' "$group" "$login"
+      printf '%s/%s\n' "$group" "$login"
     done
   '';
 in
@@ -65,7 +66,7 @@ in
       type = lib.types.package;
       default = config.nixSpace.services.kanidm-server.package;
       defaultText = lib.literalExpression "config.nixSpace.services.kanidm-server.package";
-      example = lib.literalExpression "pkgs.kanidm_1_8";
+      example = lib.literalExpression "pkgs.kanidm_1_11";
       description = ''
         The kanidm release for kanidm-unixd. Defaults to the server's on an
         Identity Node. Other hosts must set it, to the server's release.

@@ -23,7 +23,7 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      example = lib.literalExpression "pkgs.kanidm_1_8";
+      example = lib.literalExpression "pkgs.kanidm_1_11";
       description = ''
         The kanidm release to run. Always pinned by the host: kanidm's
         database only upgrades one minor release at a time, so the version
