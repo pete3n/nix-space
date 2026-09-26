@@ -83,7 +83,7 @@ in
           user:credential:credential
 
         Each credential is one line of pamu2fcfg output with the leading
-        "user:" removed. Enrol with the same origin the fleet uses:
+        "user:" removed (with -n, just the leading ":"). Enrol with the same origin the fleet uses:
 
           pamu2fcfg -n -o pam://<realm> -i pam://<realm>
 
@@ -122,6 +122,17 @@ in
         mapping would list the user with no keys. pam_u2f treats that as "no
         key registered" and, depending on the stack, denies or falls through
         to a password. Enrol with `pamu2fcfg -n -o <origin> -i <origin>`.
+      '';
+    }) ucfg.users
+    ++ lib.mapAttrsToList (user: creds: {
+      # `pamu2fcfg -n` still prints the colon that would follow a username.
+      # Pasted as-is, the mapping line gets an empty credential ("user::…"),
+      # which pam_u2f can't parse.
+      assertion = lib.all (cred: !(lib.hasInfix ":" cred)) creds;
+      message = ''
+        nixSpace.security.yubikey.u2f.users.${user} has a credential containing
+        ":". Paste each pamu2fcfg line without its leading ":" (or "name:");
+        the module adds "${user}:" itself.
       '';
     }) ucfg.users;
 
