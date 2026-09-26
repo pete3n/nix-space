@@ -68,9 +68,19 @@
       uid = 1999;
       # `ssh-keygen -t ed25519-sk -O resident -O verify-required
       #   -O application=ssh:breakglass`, one per YubiKey.
-      sshKeys = [ ];
+      sshKeys = [
+        # Primary key
+        "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIM3nU6mo53Iu9fYOBv+JhogVzyR8ZLEY3ip4iqaCa/uiAAAADnNzaDpicmVha2dsYXNz breakglass-primary@p22.lan"
+        # Backup key
+        "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIFaxhsGLgUd0qEORnciPdt2sYJTpFDX9Qz0Ox64VjFEfAAAADnNzaDpicmVha2dsYXNz breakglass-backup@p22.lan"
+      ];
       # `pamu2fcfg -n -o pam://p22.lan -i pam://p22.lan` (pamOrigin), one per YubiKey.
-      u2fCredentials = [ ];
+      u2fCredentials = [
+        # Primary key
+        "ikaT7CwdH3psAgIxAYekPpJC6Uod2lHQ0aI8f+ZIe5SmCDIdma6qJELgBPghrODpbHqp1zDpjZRDaG3nA8pfYA==,oQlYXPdlJxiBnqs3BFajPSaPFlznkhb1FLOZ9g3u6n38/Ir2FTS7fUo2RXPNqkqvaM3kQp4JF9ZzNnmMLSIgUw==,es256,+presence"
+        # Backup key
+        "jDy1qz0CAUSDbt5o/SudxPHIzNfEsbARPOvUT4+xxfEx85WZddvVMC0hXS5UU28aZL+STuPF2mQjPu9b/uvrYA==,t40i6FvLjsj3ou8DXgl/HRmbrGnUKYiQlZVXGZ7qo3gPUJtq3B/EASOfAQZuYgHwRNrC3mMRduvqqNaq8wBHCQ==,es256,+presence"
+      ];
     };
 
     # Identity Nodes of this domain, keyed by hostname. Numbered to allow an HA
