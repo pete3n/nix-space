@@ -41,6 +41,18 @@ let
       printf '%s/%s\n' "$group" "$login"
     done
   '';
+
+  # sshd runs this to fetch a login's SSH keys from kanidm. A local account
+  # that overrides a kanidm account of the same name gets no kanidm keys:
+  # otherwise the kanidm person's YubiKey would open the local account.
+  authorizedKeysScript = ''
+    #!${pkgs.runtimeShell}
+    login="$1"
+    for local_account in ${lib.escapeShellArgs cfg.localAccountOverrides}; do
+      [ "$login" = "$local_account" ] && exit 0
+    done
+    exec ${config.security.wrapperDir}/kanidm_ssh_authorizedkeys "$login"
+  '';
 in
 {
   options.nixSpace.identity.login = {
@@ -68,6 +80,18 @@ in
       '';
     };
 
+    localAccountOverrides = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "pete" ];
+      description = ''
+        Local accounts (in /etc/passwd) that win over a kanidm account of the
+        same name on this host. kanidm-unixd otherwise answers first, so a
+        kanidm person with POSIX attributes would hide the local account.
+        For a host whose own user hasn't moved to kanidm yet.
+      '';
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = config.nixSpace.services.kanidm-server.package;
@@ -86,6 +110,10 @@ in
         TrustedUserCAKeys = "${descriptor.ca.sshUserCAPublicKeyFile}";
         AuthorizedPrincipalsCommand = "/etc/ssh/authorized-principals %u";
         AuthorizedPrincipalsCommandUser = "nobody";
+        # Replaces the kanidm module's command, which asks kanidm directly.
+        AuthorizedKeysCommand = lib.mkIf (cfg.localAccountOverrides != [ ]) (
+          lib.mkForce "/etc/ssh/authorized-keys-kanidm %u"
+        );
       };
 
       # A YubiKey key signs with a touch alone unless the server asks for
@@ -101,6 +129,11 @@ in
 
     # A copied file, not a store symlink: sshd refuses a command unless it and
     # every directory above it belong to root, which /nix/store does not.
+    environment.etc."ssh/authorized-keys-kanidm" = lib.mkIf (cfg.localAccountOverrides != [ ]) {
+      mode = "0555";
+      text = authorizedKeysScript;
+    };
+
     environment.etc."ssh/authorized-principals" = {
       mode = "0555";
       text = principalsScript;
@@ -115,7 +148,10 @@ in
         # sshd looks up a kanidm account's SSH keys through kanidm-unixd.
         sshIntegration = true;
         settings = {
-          kanidm.pam_allowed_login_groups = cfg.acceptGroups;
+          kanidm = {
+            pam_allowed_login_groups = cfg.acceptGroups;
+            allow_local_account_override = cfg.localAccountOverrides;
+          };
           # Plain names ("pete-adm") instead of kanidm's default of
           # "pete-adm@p22.lan", so they match the login in the cert principal.
           uid_attr_map = "name";
@@ -128,6 +164,8 @@ in
           # domain.
           home_attr = "name";
           home_alias = "none";
+          # A new home starts with the usual dotfiles, as under pam_mkhomedir.
+          use_etc_skel = true;
           default_shell = "/run/current-system/sw/bin/bash";
         };
       };
