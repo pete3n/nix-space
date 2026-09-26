@@ -109,6 +109,19 @@ in
       '';
     };
 
+    elevatedIdleTimeout = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = 900;
+      example = 1800;
+      description = ''
+        Seconds an interactive shell of an admin-group member (a `-adm`
+        account) may sit idle at its prompt before it logs itself out.
+        Entering `-adm` takes a PIN and touch, but after that sudo asks for
+        nothing, so a forgotten `-adm` shell stays privileged until it
+        closes. null turns the timeout off.
+      '';
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = config.nixSpace.services.kanidm-server.package;
@@ -119,6 +132,24 @@ in
         Identity Node. Other hosts must set it, to the server's release.
       '';
     };
+  };
+
+  # kanidm lets a person set their own POSIX password. If pam_kanidm's auth
+  # step stayed in the PAM stacks, that password would get past the YubiKey
+  # at the console, in `su` and in the lock screen. So kanidm accounts
+  # authenticate only with pam_u2f (or a fingerprint), and `passwd` can't set
+  # a kanidm password from here. kanidm's account step (who may log in) and
+  # session step (making the home) stay. This adds a default to every PAM
+  # service, including ones other modules define.
+  options.security.pam.services = lib.mkOption {
+    type = lib.types.attrsOf (
+      lib.types.submodule {
+        config.rules = lib.mkIf cfg.enable {
+          auth.kanidm.enable = lib.mkForce false;
+          password.kanidm.enable = lib.mkForce false;
+        };
+      }
+    );
   };
 
   config = lib.mkIf cfg.enable {
@@ -137,9 +168,12 @@ in
       # the PIN too. Only kanidm accounts must use the PIN. Asking every
       # login would lock out a local account whose older YubiKey key was
       # made without a PIN. Non-YubiKey keys and certs ignore this setting.
+      # AuthenticationMethods: kanidm accounts get in with a key (or a
+      # cert) only, never a password, even one set in kanidm.
       extraConfig = lib.mkAfter ''
         Match Group ${lib.concatStringsSep "," cfg.acceptGroups}
           PubkeyAuthOptions verify-required
+          AuthenticationMethods publickey
         Match All
       '';
     };
@@ -200,6 +234,16 @@ in
         };
       };
     };
+
+    # bash reads TMOUT: after that many idle seconds at the prompt, the
+    # shell exits. readonly, so the session can't quietly turn it off.
+    programs.bash.interactiveShellInit = lib.mkIf (cfg.elevatedIdleTimeout != null) ''
+      if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx ${lib.escapeShellArg descriptor.groups.admins}; then
+        TMOUT=${toString cfg.elevatedIdleTimeout}
+        readonly TMOUT
+        export TMOUT
+      fi
+    '';
 
     security.sudo.extraRules = [
       {
