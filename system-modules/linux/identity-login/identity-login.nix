@@ -92,6 +92,23 @@ in
       '';
     };
 
+    localGroups = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.listOf lib.types.str);
+      default = { };
+      example = {
+        cdrom = [ "p22-ssh" ];
+        libvirtd = [ "admins" ];
+      };
+      description = ''
+        Local groups (in /etc/group) that members of kanidm groups also
+        belong to on this host, as local group -> kanidm groups. kanidm
+        people don't exist in /etc/passwd, so a local group can't list them
+        by name; kanidm-unixd adds them when the group is looked up
+        (`map_group`). Access then follows the Roster's groups, never a
+        per-person edit on each host.
+      '';
+    };
+
     package = lib.mkOption {
       type = lib.types.package;
       default = config.nixSpace.services.kanidm-server.package;
@@ -151,6 +168,19 @@ in
           kanidm = {
             pam_allowed_login_groups = cfg.acceptGroups;
             allow_local_account_override = cfg.localAccountOverrides;
+            # One entry per (local group, kanidm group) pair. Left out when
+            # empty, so hosts without it keep exactly the config they had.
+            map_group = lib.mkIf (cfg.localGroups != { }) (
+              lib.concatLists (
+                lib.mapAttrsToList (
+                  localGroup: kanidmGroups:
+                  map (kanidmGroup: {
+                    local = localGroup;
+                    "with" = kanidmGroup;
+                  }) kanidmGroups
+                ) cfg.localGroups
+              )
+            );
           };
           # Plain names ("pete-adm") instead of kanidm's default of
           # "pete-adm@p22.lan", so they match the login in the cert principal.
@@ -188,6 +218,15 @@ in
         assertion = config.services.openssh.enable;
         message = "nixSpace.identity.login needs services.openssh.enable.";
       }
-    ];
+    ]
+    ++ map (localGroup: {
+      # kanidm-unixd only extends groups that exist locally.
+      assertion = config.users.groups ? ${localGroup};
+      message = ''
+        nixSpace.identity.login.localGroups names "${localGroup}", which is not
+        a group on this host (users.groups). Enable whatever creates it, or
+        drop it.
+      '';
+    }) (lib.attrNames cfg.localGroups);
   };
 }
