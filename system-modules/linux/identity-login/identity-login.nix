@@ -245,6 +245,11 @@ in
       fi
     '';
 
+    # Deploys copy store paths as the admin's `-adm` account, and the nix
+    # daemon only accepts unsigned paths from trusted users. Admins already
+    # have passwordless root through sudo, so this grants nothing new.
+    nix.settings.trusted-users = [ "@${descriptor.groups.admins}" ];
+
     security.sudo.extraRules = [
       {
         groups = [ descriptor.groups.admins ];
