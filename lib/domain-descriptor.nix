@@ -6,6 +6,11 @@
     domain = "p22.lan";
     rpId = "p22.lan";
 
+    # pam_u2f's origin for console logins. Baked into every console
+    # credential at enrollment, so one enrollment works on every host of the
+    # domain, and changing it means enrolling every key again.
+    pamOrigin = "pam://p22.lan";
+
     # The certificate authority for this domain. The root is the existing,
     # offline P22-CA; step-ca runs as an online intermediate signed by it.
     ca = {
@@ -53,6 +58,19 @@
     groups = {
       admins = "admins";
       sshUsers = "p22-ssh";
+    };
+
+    # The YubiKeys that open the local Break-glass Account on every host
+    # (nixSpace.identity.breakglass): the Directory Administrators' Primary
+    # and Backup Keys, plus the Safe Key. Public keys only.
+    breakglass = {
+      # Outside every range the Roster hands out, so no person can collide.
+      uid = 1999;
+      # `ssh-keygen -t ed25519-sk -O resident -O verify-required
+      #   -O application=ssh:breakglass`, one per YubiKey.
+      sshKeys = [ ];
+      # `pamu2fcfg -n -o pam://p22.lan -i pam://p22.lan` (pamOrigin), one per YubiKey.
+      u2fCredentials = [ ];
     };
 
     # Identity Nodes of this domain, keyed by hostname. Numbered to allow an HA

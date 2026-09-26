@@ -6,6 +6,7 @@
     ./environment
     ./hardware
     ./identity-login
+    ./identity-breakglass
     ./networking
     ./programs
     ./security
