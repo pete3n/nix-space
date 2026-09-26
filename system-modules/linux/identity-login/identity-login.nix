@@ -120,7 +120,14 @@ in
           # "pete-adm@p22.lan", so they match the login in the cert principal.
           uid_attr_map = "name";
           gid_attr_map = "name";
-          home_alias = "name";
+          # The home directory itself is /home/<name>, not kanidm's default of
+          # /home/<uuid> with the name as a symlink. People keep their LDAP
+          # name and uid, so kanidm adopts the /home/<name> they already have.
+          # No alias: kanidm's default adds /home/<name>@<domain> as a
+          # symlink and reports it as the home, so $HOME would carry the
+          # domain.
+          home_attr = "name";
+          home_alias = "none";
           default_shell = "/run/current-system/sw/bin/bash";
         };
       };
