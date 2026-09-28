@@ -23,7 +23,10 @@ in
   config = lib.mkIf cfg.enable {
     nixSpace = lib.mkMerge [
       {
-        fonts.enable = lib.mkDefault true;
+        fonts = {
+          enable = lib.mkDefault true;
+          msCoreFonts = lib.mkDefault true;
+        };
         xdg.enable = lib.mkDefault true;
 
         programs = lib.mkMerge [
