@@ -59,7 +59,7 @@ in
 
     server = lib.mkOption {
       type = lib.types.str;
-      example = "backupsvr.lan";
+      example = "backup.lan";
       description = "NFS server host, resolvable by name.";
     };
 

@@ -1,3 +1,4 @@
+# TODO: Investigate first boot port needing framework_tool --pd-disable 0 --pd-enable 0
 # Workaround for USB-C source ports dropping VBUS on the Framework Laptop 16
 # The CCG8 PD controllers latch a port's source path off after repeated VBUS faults
 # (observed under load transients: app launches, resume from sleep; both ports of a

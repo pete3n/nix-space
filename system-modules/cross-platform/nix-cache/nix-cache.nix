@@ -59,7 +59,7 @@ in
           {
             # Local nginx pass-through. No key: it re-serves upstream-signed
             # paths and signs nothing itself.
-            url = "http://backupsvr.p22.lan:8000/";
+            url = "http://backup.p22.lan:8000/";
           }
           {
             url = "https://nix-community.cachix.org/";

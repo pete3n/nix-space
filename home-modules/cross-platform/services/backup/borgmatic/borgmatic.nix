@@ -189,7 +189,7 @@ in
       host = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
-        example = "backupsvr.lan";
+        example = "backup.lan";
         description = ''
           SSH host for the remote repository, or null for none.
 
