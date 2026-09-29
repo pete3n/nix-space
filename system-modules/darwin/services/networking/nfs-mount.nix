@@ -42,7 +42,7 @@ in
 
     server = lib.mkOption {
       type = lib.types.str;
-      example = "backupsvr.p22";
+      example = "backupsvr.p22.lan";
       description = "Host serving the shares. Resolved at mount time, not at build time.";
     };
 
