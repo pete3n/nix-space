@@ -5,11 +5,11 @@
 # agent the host talks to, and a serial console so `virsh console` works on a
 # box with no display.
 #
-# SELF-GATED, unlike the framework16 chassis module beside it: this config is
-# only correct inside a VM (a serial console and qemuGuest on a bare-metal
-# laptop would be wrong), so it applies only when the host declares this
-# chassis. It is still imported on every host via the hardware directory hook;
-# it simply does nothing off-VM.
+# SELF-GATED, like every chassis module beside it: this config is only
+# correct inside a VM (a serial console and qemuGuest on a bare-metal laptop
+# would be wrong), so it applies only when the host declares this chassis. It
+# is still imported on every host via the hardware directory hook; it simply
+# does nothing off-VM.
 #
 # SCOPE: generic to any libvirt virtio guest. Per-guest specifics — the disk
 # layout, filesystems, boot device — live in that host's

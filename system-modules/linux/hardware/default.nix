@@ -3,6 +3,7 @@
 {
   imports = [
     ./framework16
+    ./generic-pc
     ./gpu
     ./libvirt-vm
   ];
