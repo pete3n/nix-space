@@ -47,7 +47,7 @@ in
     };
   };
 
-  config = {
+  config = lib.mkIf cfg.enable {
     programs.hyprland = {
       enable = true;
       withUWSM = cfg.withUWSM;

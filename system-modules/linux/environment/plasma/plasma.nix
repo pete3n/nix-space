@@ -79,7 +79,7 @@ in
     };
   };
 
-  config = {
+  config = lib.mkIf cfg.enable {
     services.desktopManager.plasma6 = {
       enable = true;
       enableQt5Integration = cfg.qt5Integration;
