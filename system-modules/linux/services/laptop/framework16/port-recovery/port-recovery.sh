@@ -63,7 +63,7 @@ present() {
 }
 
 partner_attached() {
-	[ -e "/sys/class/typec/port${typec_port}/port${typec_port}-partner" ]
+	[ -e "/sys/class/typec/port${1}/port${1}-partner" ]
 }
 
 cycle() {
@@ -86,6 +86,78 @@ wait_for_device() {
 	return 1
 }
 
+# Type-C ports owned by the current controller.
+controller_ports() {
+	for _port in "${!CONTROLLER_FOR_TYPEC_PORT[@]}"; do
+		if [ "${CONTROLLER_FOR_TYPEC_PORT[${_port}]}" = "${controller}" ]; then
+			printf '%s\n' "${_port}"
+		fi
+	done | sort -n
+}
+
+controller_has_partner() {
+	for _port in $(controller_ports); do
+		partner_attached "${_port}" && return 0
+	done
+	return 1
+}
+
+wait_for_partner() {
+	for _ in $(seq 1 $((VERIFY_SECONDS * 2))); do
+		controller_has_partner && return 0
+		sleep 0.5
+	done
+	return 1
+}
+
+# A controller can come up at boot without noticing the cards in its slots: no
+# partner, no VBUS, its ports idle exactly as if the slots were empty. Nothing
+# enumerates, so no remove event ever reaches the recovery below. An empty slot
+# can't be told apart, but cycling a controller with nothing on it costs nothing,
+# so cycle each one that has no partner at all and report whether one appeared.
+boot_check() {
+	_status=0
+	sleep "${BOOT_CHECK_DELAY_SECONDS}"
+	for controller in "${BOOT_CHECK_CONTROLLERS[@]}"; do
+		_ports="$(controller_ports | tr '\n' ' ')"
+		_ports="${_ports% }"
+		_missing=""
+		for _port in ${_ports}; do
+			[ -e "/sys/class/typec/port${_port}" ] || _missing="${_port}"
+		done
+		if [ -n "${_missing}" ]; then
+			log "controller ${controller}: Type-C port ${_missing} missing (ucsi_acpi not ready?); skipping"
+			continue
+		fi
+		if controller_has_partner; then
+			log "controller ${controller}: partner attached on Type-C ports ${_ports}; nothing to do"
+			continue
+		fi
+
+		# Share the lock and cooldown stamp with the remove-event instances.
+		mkdir -p "${STATE_DIR}"
+		exec 9> "${STATE_DIR}/controller-${controller}.lock"
+		flock 9
+		if [ "${DRY_RUN}" = "true" ]; then
+			log "dry run: would cycle PD controller ${controller} (no partner on Type-C ports ${_ports})"
+			continue
+		fi
+		log "controller ${controller}: no partner on Type-C ports ${_ports}; cycling in case it missed its cards"
+		date +%s > "${STATE_DIR}/controller-${controller}.last"
+		if ! cycle "${CYCLE_GAP_SECONDS}"; then
+			_status=1
+			continue
+		fi
+		if wait_for_partner; then
+			log "controller ${controller}: partner attached after cycling; it had missed its cards"
+		else
+			log "controller ${controller}: still no partner after cycling; slots are presumably empty"
+		fi
+	done
+	exec 9>&-
+	return "${_status}"
+}
+
 # Discovery helper for building a slot table: prints the slot key for every
 # attached external USB device. Plug a device into each slot, run this, and
 # copy the keys into `slots`.
@@ -101,8 +173,9 @@ print_slot_keys() {
 
 case "${1:-}" in
 	--slot-keys) print_slot_keys; exit 0 ;;
+	--boot-check) boot_check; exit $? ;;
 	""|-*)
-		printf 'usage: fw16-pd-port-recovery <usb-device> | --slot-keys\n' >&2
+		printf 'usage: fw16-pd-port-recovery <usb-device> | --slot-keys | --boot-check\n' >&2
 		exit 2
 		;;
 	*) dev="${1}" ;; # kernel name of the removed usb_device, e.g. 3-2.2
@@ -127,7 +200,7 @@ if [ -z "${controller}" ]; then
 	exit 0
 fi
 
-if ! partner_attached; then
+if ! partner_attached "${typec_port}"; then
 	log "${dev}: nothing attached to Type-C port ${typec_port} (card removed?); ignoring"
 	exit 0
 fi
@@ -141,7 +214,7 @@ if [ "$(cat "/sys/class/typec/port${typec_port}/port${typec_port}-partner/suppor
 		log "${dev} re-enumerated on its own after its PD partner re-attached; nothing to do"
 		exit 0
 	fi
-	if ! partner_attached; then
+	if ! partner_attached "${typec_port}"; then
 		log "${dev}: PD partner on Type-C port ${typec_port} detached (self-recovery in progress, or card removed); ignoring"
 		exit 0
 	fi

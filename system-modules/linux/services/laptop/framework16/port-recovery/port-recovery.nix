@@ -1,4 +1,3 @@
-# TODO: Investigate first boot port needing framework_tool --pd-disable 0 --pd-enable 0
 # Workaround for USB-C source ports dropping VBUS on the Framework Laptop 16
 # The CCG8 PD controllers latch a port's source path off after repeated VBUS faults
 # (observed under load transients: app launches, resume from sleep; both ports of a
@@ -10,6 +9,11 @@
 # (firmware `connector` links first, then the slot map). If a card is still 
 # attached to that port after the grace period, the owning PD controller is
 # cycled. Internal devices and unmapped slots resolve to nothing and are ignored.
+#
+# A controller can also come up at boot without noticing the cards in its slots at
+# all: no partner, no VBUS, both ports idle as if empty. Nothing ever enumerates, so
+# no remove event fires. `bootCheck` covers this by cycling, once per boot, every slot
+# controller that has no partner attached.
 #
 # Set `mainboard` to select a built-in slot map. Verify on each machine with
 # `dryRun = true` before enabling actions. Requires a working EC interface for
@@ -102,6 +106,18 @@ let
     ) cfg.slots
   );
 
+  # PD controllers that serve a slot in the slot map. The boot check only looks at
+  # these, so a controller without expansion slots (the graphics module's) is left alone.
+  slotControllers = lib.unique (
+    lib.concatMap (
+      slot:
+      let
+        typecPort = toString slot.typecPort;
+      in
+      lib.optional (cfg.controllerForTypecPort ? ${typecPort}) cfg.controllerForTypecPort.${typecPort}
+    ) cfg.slots
+  );
+
   recover = pkgs.writeShellApplication {
     name = "fw16-pd-port-recovery";
     runtimeInputs = with pkgs; [
@@ -112,6 +128,8 @@ let
 
     text = # sh
     ''
+      ${lib.toShellVar "BOOT_CHECK_CONTROLLERS" slotControllers}
+      BOOT_CHECK_DELAY_SECONDS="${toString cfg.bootCheck.delaySeconds}"
       ${lib.toShellVar "CONTROLLER_FOR_TYPEC_PORT" cfg.controllerForTypecPort}
       COOLDOWN_SECONDS="${toString cfg.cooldownSeconds}"
       CYCLE_GAP_SECONDS="${toString cfg.cycleGapSeconds}"
@@ -255,6 +273,26 @@ in
         charger. Off by default.
       '';
     };
+
+    bootCheck = {
+      enable = mkEnableOption ''
+        a one-time check at boot that cycles any slot PD controller with no partner
+        attached on any of its ports. Covers a controller that came up without
+        detecting the cards in its slots, which leaves no remove event to react to.
+        A controller whose slots really are empty is cycled for nothing, which is
+        harmless; one with anything attached (a charger included) is never touched
+      '';
+
+      delaySeconds = mkOption {
+        type = types.ints.unsigned;
+        default = 20;
+        description = ''
+          Wait after the unit starts before checking, so `ucsi_acpi` has finished
+          enumerating ports and partners. The unit is ordered after
+          `fw16-ucsi-rebind.service`, so this counts from when that finishes.
+        '';
+      };
+    };
   };
 
   config = mkIf cfg.enable {
@@ -289,6 +327,18 @@ in
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${recover}/bin/fw16-pd-port-recovery %i";
+      };
+    };
+
+    systemd.services.fw16-pd-port-boot-check = mkIf cfg.bootCheck.enable {
+      description = "Cycle USB-C PD controllers that detected no cards at boot";
+      wantedBy = [ "multi-user.target" ];
+      # Judging partners is pointless until the Type-C class exists; the rebind
+      # service is what restores it when its init timed out.
+      after = [ "fw16-ucsi-rebind.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        ExecStart = "${recover}/bin/fw16-pd-port-recovery --boot-check";
       };
     };
   };
